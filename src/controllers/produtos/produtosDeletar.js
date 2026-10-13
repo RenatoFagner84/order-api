@@ -1,12 +1,9 @@
-const pool = require("../../db");
+const produtoRepository = require("../../repositories/produtoRepository");
 
 const produtosDeletar = async (req, res) => {
   const id = req.url.split("/")[3];
 
-  const result = await pool.query(
-    "DELETE FROM produtos WHERE id = $1 RETURNING *",
-    [id]
-  );
+  const result = await produtoRepository.deletar(id);
 
   if (result.rows.length === 0) {
     res.writeHead(404, {

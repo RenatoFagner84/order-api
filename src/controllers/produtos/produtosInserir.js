@@ -1,4 +1,4 @@
-const pool = require("../../db");
+const produtoRepository = require("../../repositories/produtoRepository");
 
 const produtosInserir = async (req, res) => {
   let body = "";
@@ -10,32 +10,25 @@ const produtosInserir = async (req, res) => {
   req.on("end", async () => {
     const dados = JSON.parse(body);
 
-    const { nome, quantidade } = dados;
+    const { nome, quantidade, valor } = dados;
 
-    const usuarioExiste = await pool.query(
-      "SELECT * FROM produtos WHERE nome = $1",
-      [nome]
-    );
+    const produtoExiste = await produtoRepository.inserir(nome);
 
-    if (usuarioExiste.rows.length > 0) {
+    if (produtoExiste.rows.length > 0) {
       res.writeHead(400, {
         "Content-Type": "application/json"
       });
 
       res.end(
         JSON.stringify({
-          mensagem: "Usuário já existe"
+          mensagem: "Produto já existe"
         })
       );
 
       return;
     }
 
-    const resultado = await pool.query(
-      "INSERT INTO produtos (nome, quantidade) VALUES ($1, $2) RETURNING *",
-      [nome, quantidade || null]
-    );
-
+    const resultado = await produtoRepository.inserirProduto(nome, quantidade, valor );
     res.writeHead(201, {
       "Content-Type": "application/json"
     });

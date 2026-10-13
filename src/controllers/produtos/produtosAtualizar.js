@@ -1,4 +1,4 @@
-const pool = require("../../db");
+const produtoRepository = require("../../repositories/produtoRepository");
 
 const produtosAtualizar = async (req, res) => {
   const id = req.url.split("/")[3];
@@ -13,12 +13,9 @@ const produtosAtualizar = async (req, res) => {
     req.on("end", async () => {
       const dados = JSON.parse(body);
 
-      const { nome, quantidade } = dados;
+      const { nome, quantidade, valor } = dados;
 
-      const produtoExiste = await pool.query(
-        "SELECT * FROM produtos WHERE id = $1",
-        [id]
-      );
+      const produtoExiste = await produtoRepository.ler(id);
 
       if (produtoExiste.rows.length === 0) {
         res.writeHead(404, {
@@ -33,37 +30,13 @@ const produtosAtualizar = async (req, res) => {
         return;
       }
 
-      const nomeExiste = await pool.query(
-        "SELECT * FROM produtos WHERE nome = $1 AND id != $2",
-        [nome, id]
+      const result = await produtoRepository.atualizar(
+        id,
+        nome,
+        quantidade,
+        valor
       );
-
-      if (nomeExiste.rows.length > 0) {
-        res.writeHead(400, {
-          "Content-Type": "application/json"
-        });
-
-        res.end(JSON.stringify({
-          mensagem: "Este produto já está cadastrado"
-        }));
-
-        resolve();
-        return;
-      }
-
-      const result = await pool.query(
-        `UPDATE produtos
-         SET nome = $1,
-             quantidade = $2
-         WHERE id = $3
-         RETURNING *`,
-        [
-          nome,
-          quantidade,
-          id
-        ]
-      );
-
+            
       res.writeHead(200, {
         "Content-Type": "application/json"
       });

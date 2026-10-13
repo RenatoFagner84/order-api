@@ -1,10 +1,7 @@
-const pool = require("../../db");
+const produtosRepository = require("../../repositories/produtoRepository");
 
 const produtosLer = async (req, res) => {
-  const result = await pool.query(
-    "SELECT * FROM produtos"
-  );
-
+  const result = await produtosRepository.lerTudo();
   res.writeHead(200, {
     "Content-Type": "application/json"
   });
