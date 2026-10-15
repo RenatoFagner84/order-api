@@ -1,4 +1,3 @@
-
 const logRepository = require("../../repositories/logRepository");
 
 const inserir = async (req, res) => {
@@ -13,7 +12,7 @@ const inserir = async (req, res) => {
 
     if (!metodo || !rota) {
         res.writeHead(400, {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json; charset=utf-8"
         });
 
         return res.end(JSON.stringify({
@@ -21,24 +20,43 @@ const inserir = async (req, res) => {
         }));
     }
 
-    const resultado = await logRepository.inserir(
-        metodo,
-        rota,
-        status_code,
-        mensagem,
-        ip,
-        user_agent
-    );
+    try {
+        // O usuário vem do middleware de autenticação.
+        // Não confiamos em user_id enviado pelo cliente.
+        const user_id = req.usuario?.id ?? null;
 
-    res.writeHead(201, {
-        "Content-Type": "application/json"
-    });
+        const resultado = await logRepository.inserir(
+            metodo,
+            rota,
+            status_code,
+            mensagem,
+            ip,
+            user_agent,
+            user_id
+        );
 
-    return res.end(JSON.stringify({
-        mensagem: "Log registrado com sucesso.",
-        log: resultado.rows[0]
-    }));
+        res.writeHead(201, {
+            "Content-Type": "application/json; charset=utf-8"
+        });
+
+        return res.end(JSON.stringify({
+            mensagem: "Log registrado com sucesso.",
+            log: resultado.rows[0]
+        }));
+    } catch (erro) {
+        console.error(
+            "[ERRO AO INSERIR LOG MANUAL]",
+            erro.message
+        );
+
+        res.writeHead(500, {
+            "Content-Type": "application/json; charset=utf-8"
+        });
+
+        return res.end(JSON.stringify({
+            mensagem: "Não foi possível registrar o log."
+        }));
+    }
 };
 
 module.exports = inserir;
-

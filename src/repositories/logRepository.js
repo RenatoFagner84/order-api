@@ -6,7 +6,8 @@ const inserir = async (
     status_code,
     mensagem,
     ip,
-    user_agent
+    user_agent,
+    user_id = null
 ) => {
     return await pool.query(
         `INSERT INTO logs (
@@ -15,17 +16,19 @@ const inserir = async (
             status_code,
             mensagem,
             ip,
-            user_agent
+            user_agent,
+            user_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *`,
         [
             metodo,
             rota,
-            status_code || null,
-            mensagem || null,
-            ip || null,
-            user_agent || null
+            status_code ?? null,
+            mensagem ?? null,
+            ip ?? null,
+            user_agent ?? null,
+            user_id ?? null
         ]
     );
 };
@@ -40,6 +43,7 @@ const listar = async (limite = 100, offset = 0) => {
             mensagem,
             ip,
             user_agent,
+            user_id,
             data_criacao
         FROM logs
         ORDER BY data_criacao DESC, id DESC
@@ -58,6 +62,7 @@ const ler = async (id) => {
             mensagem,
             ip,
             user_agent,
+            user_id,
             data_criacao
         FROM logs
         WHERE id = $1`,

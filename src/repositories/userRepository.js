@@ -48,6 +48,23 @@ const verificarEmail = async (email) => {
     );
 };
 
+// Busca um usuário pelo e-mail para realizar o login.
+// Inclui usuários inativos para que o login possa rejeitá-los
+// com a mesma mensagem usada para credenciais inválidas.
+const buscarPorEmailParaLogin = async (email) => {
+    return await pool.query(
+        `SELECT
+            id,
+            nome,
+            email,
+            senha_hash,
+            ativo
+         FROM users
+         WHERE LOWER(email) = LOWER($1)`,
+        [email]
+    );
+};
+
 const inserirUsuario = async (nome, email, telefone, senhaHash) => {
     return await pool.query(
         `INSERT INTO users
@@ -142,6 +159,7 @@ module.exports = {
     lerTudo,
     buscarPorNome,
     verificarEmail,
+    buscarPorEmailParaLogin,
     inserirUsuario,
     atualizar,
     deletar,

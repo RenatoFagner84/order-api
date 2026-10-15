@@ -2,7 +2,7 @@ const produtoRepository = require("../../repositories/produtoRepository");
 
 const produtosInserir = async (req, res) => {
   let body = "";
-
+let code = 201;
   req.on("data", (chunk) => {
     body += chunk.toString();
   });
@@ -28,7 +28,8 @@ const produtosInserir = async (req, res) => {
       return;
     }
 
-    const resultado = await produtoRepository.inserirProduto(nome, quantidade, valor );
+    const resultado = await produtoRepository.inserirProduto(nome, quantidade, valor ); 
+
     res.writeHead(201, {
       "Content-Type": "application/json"
     });

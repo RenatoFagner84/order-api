@@ -1,6 +1,6 @@
 
 const bcrypt = require("bcryptjs");
-const userRepository = require("../../repositories/userRepository");
+const pool = require("../../db");
 
 const usersInserir = async (req, res) => {
     let body = "";
@@ -10,6 +10,8 @@ const usersInserir = async (req, res) => {
     });
 
     req.on("end", async () => {
+        let client;
+
         try {
             const dados = body ? JSON.parse(body) : {};
             const { nome, email, telefone, senha } = dados;
@@ -25,50 +27,147 @@ const usersInserir = async (req, res) => {
                 res.writeHead(400, {
                     "Content-Type": "application/json; charset=utf-8"
                 });
+
                 res.end(JSON.stringify({
                     mensagem: "Informe nome, e-mail e senha com pelo menos 8 caracteres."
                 }));
+
                 return;
             }
 
-            const usuarioExiste =
-                await userRepository.verificarEmail(email.trim());
-
-            if (usuarioExiste.rows.length > 0) {
+            if (
+                telefone !== undefined &&
+                telefone !== null &&
+                typeof telefone !== "string"
+            ) {
                 res.writeHead(400, {
                     "Content-Type": "application/json; charset=utf-8"
                 });
+
                 res.end(JSON.stringify({
-                    mensagem: "Usuário já existe."
+                    mensagem: "O telefone deve ser uma string."
                 }));
+
                 return;
             }
 
+            const nomeNormalizado = nome.trim();
+            const emailNormalizado = email.trim();
             const senhaHash = await bcrypt.hash(senha, 10);
 
-            const resultado = await userRepository.inserirUsuario(
-                nome.trim(),
-                email.trim(),
-                telefone,
-                senhaHash
+            client = await pool.connect();
+            await client.query("BEGIN");
+
+            const usuarioExiste = await client.query(
+                `SELECT id
+                 FROM users
+                 WHERE LOWER(email) = LOWER($1)
+                 LIMIT 1`,
+                [emailNormalizado]
             );
+
+            if (usuarioExiste.rowCount > 0) {
+                await client.query("ROLLBACK");
+
+                res.writeHead(409, {
+                    "Content-Type": "application/json; charset=utf-8"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: "Já existe um usuário com este e-mail."
+                }));
+
+                return;
+            }
+
+            const resultadoRole = await client.query(
+                `SELECT id, role
+                 FROM roles
+                 WHERE LOWER(role) = 'client'
+                 LIMIT 1`
+            );
+
+            if (resultadoRole.rowCount === 0) {
+                await client.query("ROLLBACK");
+
+                res.writeHead(500, {
+                    "Content-Type": "application/json; charset=utf-8"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: "A role client não está cadastrada no banco."
+                }));
+
+                return;
+            }
+
+            const roleClient = resultadoRole.rows[0];
+
+            const resultadoUsuario = await client.query(
+                `INSERT INTO users
+                    (nome, email, telefone, senha_hash, ativo)
+                 VALUES ($1, $2, $3, $4, TRUE)
+                 RETURNING id, nome, email, telefone, ativo`,
+                [
+                    nomeNormalizado,
+                    emailNormalizado,
+                    telefone || null,
+                    senhaHash
+                ]
+            );
+
+            const usuario = resultadoUsuario.rows[0];
+
+            await client.query(
+                `INSERT INTO users_roles (user_id, role_id)
+                 VALUES ($1, $2)`,
+                [usuario.id, roleClient.id]
+            );
+
+            await client.query("COMMIT");
 
             res.writeHead(201, {
                 "Content-Type": "application/json; charset=utf-8"
             });
-            res.end(JSON.stringify(resultado.rows[0]));
+
+            res.end(JSON.stringify({
+                mensagem: "Usuário cadastrado com sucesso.",
+                usuario,
+                roles: [
+                    {
+                        id: roleClient.id,
+                        role: roleClient.role
+                    }
+                ]
+            }));
         } catch (erro) {
+            if (client) {
+                try {
+                    await client.query("ROLLBACK");
+                } catch (erroRollback) {
+                    console.error(erroRollback.message);
+                }
+            }
+
             console.error("[ERRO AO CADASTRAR USUÁRIO]", erro.message);
 
             if (!res.headersSent) {
-                res.writeHead(400, {
+                const conflito = erro.code === "23505";
+
+                res.writeHead(conflito ? 409 : 500, {
                     "Content-Type": "application/json; charset=utf-8"
                 });
-            }
 
-            res.end(JSON.stringify({
-                mensagem: "Não foi possível cadastrar o usuário."
-            }));
+                res.end(JSON.stringify({
+                    mensagem: conflito
+                        ? "Já existe um usuário com estes dados únicos."
+                        : "Não foi possível cadastrar o usuário."
+                }));
+            }
+        } finally {
+            if (client) {
+                client.release();
+            }
         }
     });
 };

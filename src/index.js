@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 
 const http = require("http");
@@ -31,13 +32,16 @@ const server = http.createServer(async (req, res) => {
             `Requisição ${metodo} ${rota} finalizada ` +
             `com status ${status_code} em ${duracao}ms`;
 
+        const user_id = req.usuario?.id ?? null;
+
         logRepository.inserir(
             metodo,
             rota,
             status_code,
             mensagem,
             ip,
-            user_agent
+            user_agent,
+            user_id
         ).catch((erro) => {
             console.error(
                 "[ERRO AO REGISTRAR LOG]",
@@ -47,16 +51,28 @@ const server = http.createServer(async (req, res) => {
     });
 
     try {
-        // Rotas públicas: login e cadastro
+        const consultaPublicaProduto =
+            metodo === "GET" &&
+            (
+                rota === "/produtos/ler" ||
+                /^\/produtos\/ler\/\d+$/.test(rota) ||
+                rota === "/produtos/buscar"
+            );
+
         if (
             rota === "/users/login" ||
-            rota === "/users/inserir"
+            rota === "/users/inserir" ||
+            consultaPublicaProduto
         ) {
+            if (consultaPublicaProduto) {
+                await routes.produtosRoutes(req, res);
+                return;
+            }
+
             await routes.usersRoutes(req, res);
             return;
         }
 
-        // Demais rotas exigem autenticação e autorização
         autenticar(req, res, () => {
             autorizar(req, res, async () => {
                 try {
@@ -105,21 +121,21 @@ const server = http.createServer(async (req, res) => {
                         return;
                     }
 
-                    res.writeHead(404, {
-                        "Content-Type":
-                            "application/json; charset=utf-8"
-                    });
+                    if (!res.writableEnded) {
+                        res.writeHead(404, {
+                            "Content-Type": "application/json; charset=utf-8"
+                        });
 
-                    res.end(JSON.stringify({
-                        mensagem: "Rota não encontrada"
-                    }));
+                        res.end(JSON.stringify({
+                            mensagem: "Rota não encontrada"
+                        }));
+                    }
                 } catch (erro) {
                     console.error("[ERRO NA ROTA]", erro);
 
                     if (!res.writableEnded) {
                         res.writeHead(500, {
-                            "Content-Type":
-                                "application/json; charset=utf-8"
+                            "Content-Type": "application/json; charset=utf-8"
                         });
 
                         res.end(JSON.stringify({
@@ -134,8 +150,7 @@ const server = http.createServer(async (req, res) => {
 
         if (!res.writableEnded) {
             res.writeHead(500, {
-                "Content-Type":
-                    "application/json; charset=utf-8"
+                "Content-Type": "application/json; charset=utf-8"
             });
 
             res.end(JSON.stringify({
