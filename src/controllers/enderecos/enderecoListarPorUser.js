@@ -1,15 +1,36 @@
 const enderecoRepository = require("../../repositories/enderecoRepository");
 
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
 const enderecoListarPorUser = async (req, res) => {
-  const user_id = req.url.split("/")[3];
+    const userId = Number(req.params?.userId);
 
-  const resultado = await enderecoRepository.listarPorUser(user_id);
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
+        responder(res, 400, {
+            mensagem: "ID do usuário inválido."
+        });
+        return;
+    }
 
-  res.writeHead(200, {
-    "Content-Type": "application/json"
-  });
+    try {
+        const resultado = await enderecoRepository.listarPorUser(userId);
 
-  res.end(JSON.stringify(resultado.rows));
+        responder(res, 200, resultado.rows);
+    } catch (erro) {
+        console.error("[ERRO AO LISTAR ENDEREÇOS DO USUÁRIO]", erro);
+
+        responder(res, 500, {
+            mensagem: "Erro interno ao listar os endereços."
+        });
+    }
 };
 
 module.exports = enderecoListarPorUser;

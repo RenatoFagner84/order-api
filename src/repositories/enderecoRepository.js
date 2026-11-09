@@ -10,21 +10,19 @@ const inserir = async (
     cidade,
     estado
 ) => {
-    return await pool.query(
-        `INSERT INTO enderecos
-            (
-                user_id,
-                cep,
-                logradouro,
-                numero,
-                complemento,
-                bairro,
-                cidade,
-                estado
-            )
-         VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING *`,
+    return pool.query(
+        `INSERT INTO enderecos (
+            user_id,
+            cep,
+            logradouro,
+            numero,
+            complemento,
+            bairro,
+            cidade,
+            estado
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *`,
         [
             user_id,
             cep,
@@ -38,18 +36,18 @@ const inserir = async (
     );
 };
 
-const listarPorUser = async (user_id) => {
-    return await pool.query(
+const listarPorUser = async (userId) => {
+    return pool.query(
         `SELECT *
          FROM enderecos
          WHERE user_id = $1
          ORDER BY id`,
-        [user_id]
+        [userId]
     );
 };
 
 const ler = async (id) => {
-    return await pool.query(
+    return pool.query(
         `SELECT *
          FROM enderecos
          WHERE id = $1`,
@@ -67,7 +65,7 @@ const atualizar = async (
     cidade,
     estado
 ) => {
-    return await pool.query(
+    return pool.query(
         `UPDATE enderecos
          SET cep = $1,
              logradouro = $2,
@@ -92,7 +90,7 @@ const atualizar = async (
 };
 
 const deletar = async (id) => {
-    return await pool.query(
+    return pool.query(
         `DELETE FROM enderecos
          WHERE id = $1
          RETURNING *`,

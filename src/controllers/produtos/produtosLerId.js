@@ -1,26 +1,45 @@
 const produtoRepository = require("../../repositories/produtoRepository");
 
-const produtosLerId = async (req, res) => {
-  const id = req.url.split("/")[3].split("?")[0];
-  const result = await produtoRepository.ler(id);
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
 
-  if (result.rows.length === 0) {
-    res.writeHead(404, {
-      "Content-Type": "application/json"
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
     });
 
-    res.end(JSON.stringify({
-      mensagem: "Produto não encontrado"
-    }));
+    res.end(JSON.stringify(dados));
+};
 
-    return;
-  }
+const produtosLerId = async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const partes = url.pathname.split("/");
+    const id = partes[3];
 
-  res.writeHead(200, {
-    "Content-Type": "application/json"
-  });
+    if (!id || !/^\d+$/.test(id)) {
+        responder(res, 400, {
+            mensagem: "Informe um ID de produto válido."
+        });
+        return;
+    }
 
-  res.end(JSON.stringify(result.rows[0]));
+    try {
+        const resultado = await produtoRepository.ler(id);
+
+        if (resultado.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "Produto não encontrado"
+            });
+            return;
+        }
+
+        responder(res, 200, resultado.rows[0]);
+    } catch (erro) {
+        console.error("[ERRO AO BUSCAR PRODUTO]", erro);
+
+        responder(res, 500, {
+            mensagem: "Erro interno ao buscar produto."
+        });
+    }
 };
 
 module.exports = produtosLerId;

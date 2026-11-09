@@ -1,11 +1,11 @@
 const roleLer = require("./roleLer");
+const rolesPorUser = require("./rolesPorUser");
 const roleAtribuir = require("./roleAtribuir");
 const roleRemover = require("./roleRemover");
-const rolesPorUser = require("./rolesPorUser");
 
 module.exports = {
     roleLer,
+    rolesPorUser,
     roleAtribuir,
-    roleRemover,
-    rolesPorUser
+    roleRemover
 };

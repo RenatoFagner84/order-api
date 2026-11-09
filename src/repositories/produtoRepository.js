@@ -1,3 +1,4 @@
+
 const pool = require("../db");
 
 const ler = async (id) => {
@@ -55,12 +56,7 @@ const atualizar = async (id, nome, quantidade, valor) => {
              valor = $3
          WHERE id = $4
          RETURNING *`,
-        [
-            nome,
-            quantidade,
-            valor,
-            id
-        ]
+        [nome, quantidade, valor, id]
     );
 };
 

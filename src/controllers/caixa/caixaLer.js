@@ -1,27 +1,53 @@
 const caixaRepository = require("../../repositories/caixaRepository");
 
-const caixaLer = async (req, res) => {
-  const id = req.url.split("/")[3];
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
 
-  const resultado = await caixaRepository.ler(id);
-
-  if (resultado.rows.length === 0) {
-    res.writeHead(404, {
-      "Content-Type": "application/json"
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
     });
 
-    res.end(JSON.stringify({
-      mensagem: "Movimentação do caixa não encontrada"
-    }));
+    res.end(JSON.stringify(dados));
+};
 
-    return;
-  }
+const caixaLer = async (req, res) => {
+    const pathname = new URL(
+        req.url,
+        "http://localhost"
+    ).pathname;
 
-  res.writeHead(200, {
-    "Content-Type": "application/json"
-  });
+    const idTexto = pathname.split("/")[3];
+    const id = Number(idTexto);
 
-  res.end(JSON.stringify(resultado.rows[0]));
+    if (
+        !/^\d+$/.test(idTexto || "") ||
+        !Number.isSafeInteger(id) ||
+        id <= 0
+    ) {
+        responder(res, 400, {
+            mensagem: "ID da movimentação inválido."
+        });
+        return;
+    }
+
+    try {
+        const resultado = await caixaRepository.ler(id);
+
+        if (!resultado.rows || resultado.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "Movimentação do caixa não encontrada."
+            });
+            return;
+        }
+
+        responder(res, 200, resultado.rows[0]);
+    } catch (erro) {
+        console.error("[ERRO AO CONSULTAR MOVIMENTAÇÃO DO CAIXA]", erro);
+
+        responder(res, 500, {
+            mensagem: "Erro interno ao consultar a movimentação do caixa."
+        });
+    }
 };
 
 module.exports = caixaLer;

@@ -1,6 +1,29 @@
 const logRepository = require("../../repositories/logRepository");
 
-const inserir = async (req, res) => {
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const logsInserir = async (req, res) => {
+    const dados = req.body;
+
+    if (
+        !dados ||
+        typeof dados !== "object" ||
+        Array.isArray(dados)
+    ) {
+        responder(res, 400, {
+            mensagem: "O corpo da requisição deve ser um objeto JSON."
+        });
+        return;
+    }
+
     const {
         metodo,
         rota,
@@ -8,22 +31,22 @@ const inserir = async (req, res) => {
         mensagem,
         ip,
         user_agent
-    } = req.body;
+    } = dados;
 
-    if (!metodo || !rota) {
-        res.writeHead(400, {
-            "Content-Type": "application/json; charset=utf-8"
-        });
-
-        return res.end(JSON.stringify({
+    if (
+        typeof metodo !== "string" ||
+        !metodo.trim() ||
+        typeof rota !== "string" ||
+        !rota.trim()
+    ) {
+        responder(res, 400, {
             mensagem: "Método e rota são obrigatórios."
-        }));
+        });
+        return;
     }
 
     try {
-        // O usuário vem do middleware de autenticação.
-        // Não confiamos em user_id enviado pelo cliente.
-        const user_id = req.usuario?.id ?? null;
+        const userId = req.usuario?.id ?? null;
 
         const resultado = await logRepository.inserir(
             metodo,
@@ -32,31 +55,20 @@ const inserir = async (req, res) => {
             mensagem,
             ip,
             user_agent,
-            user_id
+            userId
         );
 
-        res.writeHead(201, {
-            "Content-Type": "application/json; charset=utf-8"
-        });
-
-        return res.end(JSON.stringify({
+        responder(res, 201, {
             mensagem: "Log registrado com sucesso.",
             log: resultado.rows[0]
-        }));
-    } catch (erro) {
-        console.error(
-            "[ERRO AO INSERIR LOG MANUAL]",
-            erro.message
-        );
-
-        res.writeHead(500, {
-            "Content-Type": "application/json; charset=utf-8"
         });
+    } catch (erro) {
+        console.error("[ERRO AO INSERIR LOG MANUAL]", erro);
 
-        return res.end(JSON.stringify({
+        responder(res, 500, {
             mensagem: "Não foi possível registrar o log."
-        }));
+        });
     }
 };
 
-module.exports = inserir;
+module.exports = logsInserir;

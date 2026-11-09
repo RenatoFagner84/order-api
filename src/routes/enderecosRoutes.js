@@ -1,42 +1,82 @@
 const endereco = require("../controllers/enderecos");
 
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
 const enderecosRoutes = async (req, res) => {
     const url = new URL(req.url, "http://localhost");
-    const partes = url.pathname.split("/");
-    const acao = partes[2];
+    const caminho = url.pathname;
 
-    if (req.method === "GET" && acao === "user" && partes[3]) {
+    const rotaListarPorUser = caminho.match(
+        /^\/enderecos\/user\/([^/]+)$/
+    );
+
+    if (req.method === "GET" && rotaListarPorUser) {
+        req.params = {
+            userId: rotaListarPorUser[1]
+        };
+
         await endereco.enderecoListarPorUser(req, res);
         return;
     }
 
-    if (req.method === "GET" && acao === "ler" && partes[3]) {
+    const rotaLer = caminho.match(
+        /^\/enderecos\/ler\/([^/]+)$/
+    );
+
+    if (req.method === "GET" && rotaLer) {
+        req.params = {
+            id: rotaLer[1]
+        };
+
         await endereco.enderecoLer(req, res);
         return;
     }
 
-    if (req.method === "POST" && acao === "inserir") {
+    if (
+        req.method === "POST" &&
+        caminho === "/enderecos/inserir"
+    ) {
         await endereco.enderecoInserir(req, res);
         return;
     }
 
-    if (req.method === "PUT" && acao === "atualizar" && partes[3]) {
+    const rotaAtualizar = caminho.match(
+        /^\/enderecos\/atualizar\/([^/]+)$/
+    );
+
+    if (req.method === "PUT" && rotaAtualizar) {
+        req.params = {
+            id: rotaAtualizar[1]
+        };
+
         await endereco.enderecoAtualizar(req, res);
         return;
     }
 
-    if (req.method === "DELETE" && acao === "deletar" && partes[3]) {
+    const rotaDeletar = caminho.match(
+        /^\/enderecos\/deletar\/([^/]+)$/
+    );
+
+    if (req.method === "DELETE" && rotaDeletar) {
+        req.params = {
+            id: rotaDeletar[1]
+        };
+
         await endereco.enderecoDeletar(req, res);
         return;
     }
 
-    res.writeHead(404, {
-        "Content-Type": "application/json"
-    });
-
-    res.end(JSON.stringify({
+    responder(res, 404, {
         mensagem: "Rota de endereços não encontrada"
-    }));
+    });
 };
 
 module.exports = enderecosRoutes;

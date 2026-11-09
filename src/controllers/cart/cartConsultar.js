@@ -1,6 +1,8 @@
 const cartRepository = require("../../repositories/cartRepository");
 
 const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
     res.writeHead(status, {
         "Content-Type": "application/json; charset=utf-8"
     });
@@ -10,18 +12,18 @@ const responder = (res, status, dados) => {
 
 const cartConsultar = async (req, res) => {
     try {
-        const url = new URL(req.url, "http://localhost");
-        const partes = url.pathname.split("/");
-        const carrinhoId = Number(partes[2]);
+        const carrinhoId = Number(req.params?.id);
 
-        if (!Number.isInteger(carrinhoId) || carrinhoId <= 0) {
+        if (!Number.isSafeInteger(carrinhoId) || carrinhoId <= 0) {
             responder(res, 400, {
                 mensagem: "ID do carrinho inválido."
             });
             return;
         }
 
-        if (!req.usuario || !req.usuario.id) {
+        const usuarioId = Number(req.usuario?.id);
+
+        if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
             responder(res, 401, {
                 mensagem: "Usuário não autenticado."
             });
@@ -38,32 +40,28 @@ const cartConsultar = async (req, res) => {
             return;
         }
 
-        const usuarioId = Number(req.usuario.id);
         const donoId = Number(carrinho.user_id);
 
         if (usuarioId !== donoId) {
             responder(res, 403, {
-                mensagem: "Você não tem permissão para consultar este carrinho."
+                mensagem:
+                    "Você não tem permissão para consultar este carrinho."
             });
             return;
         }
 
         const itens = await cartRepository.consultarItens(carrinhoId);
 
-        const resposta = {
+        responder(res, 200, {
             ...carrinho,
             itens: itens.rows
-        };
-
-        responder(res, 200, resposta);
+        });
     } catch (erro) {
         console.error("[ERRO AO CONSULTAR CARRINHO]", erro);
 
-        if (!res.writableEnded) {
-            responder(res, 500, {
-                mensagem: "Erro interno ao consultar o carrinho."
-            });
-        }
+        responder(res, 500, {
+            mensagem: "Erro interno ao consultar o carrinho."
+        });
     }
 };
 

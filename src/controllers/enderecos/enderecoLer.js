@@ -1,27 +1,43 @@
 const enderecoRepository = require("../../repositories/enderecoRepository");
 
-const enderecoLer = async (req, res) => {
-  const id = req.url.split("/")[3];
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
 
-  const resultado = await enderecoRepository.ler(id);
-
-  if (resultado.rows.length === 0) {
-    res.writeHead(404, {
-      "Content-Type": "application/json"
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
     });
 
-    res.end(JSON.stringify({
-      mensagem: "Endereço não encontrado"
-    }));
+    res.end(JSON.stringify(dados));
+};
 
-    return;
-  }
+const enderecoLer = async (req, res) => {
+    const id = Number(req.params?.id);
 
-  res.writeHead(200, {
-    "Content-Type": "application/json"
-  });
+    if (!Number.isSafeInteger(id) || id <= 0) {
+        responder(res, 400, {
+            mensagem: "ID do endereço inválido."
+        });
+        return;
+    }
 
-  res.end(JSON.stringify(resultado.rows[0]));
+    try {
+        const resultado = await enderecoRepository.ler(id);
+
+        if (resultado.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "Endereço não encontrado"
+            });
+            return;
+        }
+
+        responder(res, 200, resultado.rows[0]);
+    } catch (erro) {
+        console.error("[ERRO AO CONSULTAR ENDEREÇO]", erro);
+
+        responder(res, 500, {
+            mensagem: "Erro interno ao consultar o endereço."
+        });
+    }
 };
 
 module.exports = enderecoLer;

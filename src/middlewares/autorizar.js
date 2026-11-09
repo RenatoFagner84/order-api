@@ -1,3 +1,4 @@
+
 const permissionRepository = require("../repositories/permissionRepository");
 
 function normalizarRota(pathname) {
@@ -8,7 +9,7 @@ function normalizarRota(pathname) {
 }
 
 function responder(res, status, mensagem) {
-    if (res.writableEnded) {
+    if (res.writableEnded || res.headersSent) {
         return;
     }
 
@@ -29,6 +30,14 @@ async function autorizar(req, res, proximo) {
         const url = new URL(req.url, "http://localhost");
         const rota = normalizarRota(url.pathname);
         const metodo = req.method.toUpperCase();
+
+        if (
+            metodo === "GET" &&
+            /^\/pedido\/\d+$/.test(url.pathname)
+        ) {
+            proximo();
+            return;
+        }
 
         const permissao =
             await permissionRepository.buscarPermissaoPorRotaEMetodo(

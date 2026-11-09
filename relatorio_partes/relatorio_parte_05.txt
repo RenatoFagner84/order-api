@@ -1,0 +1,2200 @@
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const pedidosFinalizar = async (req, res) => {
+    const partes = new URL(req.url, "http://localhost:3000").pathname.split("/");
+    const carrinhoId = Number(partes[2]);
+    const userId = Number(req.usuario?.id);
+
+    if (!Number.isInteger(carrinhoId) || carrinhoId <= 0) {
+        return responder(res, 400, {
+            mensagem: "ID do carrinho invÃ¡lido."
+        });
+    }
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+        return responder(res, 401, {
+            mensagem: "UsuÃ¡rio nÃ£o autenticado."
+        });
+    }
+
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        // Busca e bloqueia o carrinho.
+        const carrinhoResult = await client.query(
+            `SELECT id, user_id, status_id, oculto
+             FROM carrinho
+             WHERE id = $1
+             FOR UPDATE`,
+            [carrinhoId]
+        );
+
+        if (carrinhoResult.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return responder(res, 404, {
+                mensagem: "Carrinho nÃ£o encontrado."
+            });
+        }
+
+        const carrinho = carrinhoResult.rows[0];
+
+        if (Number(carrinho.user_id) !== userId) {
+            await client.query("ROLLBACK");
+            return responder(res, 403, {
+                mensagem: "VocÃª nÃ£o tem permissÃ£o para finalizar este carrinho."
+            });
+        }
+
+        if (carrinho.oculto) {
+            await client.query("ROLLBACK");
+            return responder(res, 409, {
+                mensagem: "Este carrinho nÃ£o estÃ¡ disponÃ­vel."
+            });
+        }
+
+        if (Number(carrinho.status_id) === 401) {
+            await client.query("ROLLBACK");
+            return responder(res, 409, {
+                mensagem: "Este carrinho jÃ¡ foi finalizado."
+            });
+        }
+
+        // Busca os produtos e bloqueia as linhas de estoque.
+        const produtosResult = await client.query(
+            `SELECT
+                pc.produto_id,
+                pc.quantidade,
+                p.nome,
+                p.valor,
+                p.quantidade AS quantidade_estoque
+             FROM produtos_carrinho pc
+             INNER JOIN produtos p ON p.id = pc.produto_id
+             WHERE pc.carrinho_id = $1
+             ORDER BY pc.produto_id
+             FOR UPDATE OF p`,
+            [carrinhoId]
+        );
+
+        if (produtosResult.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return responder(res, 400, {
+                mensagem: "NÃ£o Ã© possÃ­vel finalizar um carrinho vazio."
+            });
+        }
+
+        const produtosInvalidos = produtosResult.rows.filter(produto => {
+            const quantidade = Number(produto.quantidade);
+            const estoque = Number(produto.quantidade_estoque);
+
+            return (
+                !Number.isInteger(quantidade) ||
+                quantidade <= 0 ||
+                quantidade > estoque
+            );
+        });
+
+        if (produtosInvalidos.length > 0) {
+            await client.query("ROLLBACK");
+            return responder(res, 409, {
+                mensagem: "Estoque insuficiente ou quantidade invÃ¡lida.",
+                produtos: produtosInvalidos.map(produto => ({
+                    produto_id: produto.produto_id,
+                    nome: produto.nome,
+                    quantidade_solicitada: produto.quantidade,
+                    quantidade_estoque: produto.quantidade_estoque
+                }))
+            });
+        }
+
+        // Cria o pedido como pendente (status 200).
+        const pedidoResult = await client.query(
+            `INSERT INTO pedidos (user_id, status_id, oculto)
+             VALUES ($1, $2, false)
+             RETURNING id, user_id, data_pedido, status_id, oculto`,
+            [userId, 200]
+        );
+
+        const pedido = pedidoResult.rows[0];
+        const produtosPedido = [];
+
+        for (const produto of produtosResult.rows) {
+            const quantidade = Number(produto.quantidade);
+            const valorUnitario = Number(produto.valor);
+
+            const produtoPedidoResult = await client.query(
+                `INSERT INTO produtos_pedido
+                    (pedido_id, produto_id, quantidade, valor_unitario)
+                 VALUES ($1, $2, $3, $4)
+                 RETURNING *`,
+                [
+                    pedido.id,
+                    produto.produto_id,
+                    quantidade,
+                    valorUnitario
+                ]
+            );
+
+            const estoqueResult = await client.query(
+                `UPDATE produtos
+                 SET quantidade = quantidade - $1
+                 WHERE id = $2
+                   AND quantidade >= $1
+                 RETURNING id, nome, quantidade`,
+                [quantidade, produto.produto_id]
+            );
+
+            if (estoqueResult.rows.length === 0) {
+                throw new Error(
+                    `NÃ£o foi possÃ­vel atualizar o estoque do produto ${produto.produto_id}.`
+                );
+            }
+
+            produtosPedido.push({
+                ...produtoPedidoResult.rows[0],
+                nome: produto.nome,
+                estoque_atual: estoqueResult.rows[0].quantidade
+            });
+        }
+
+        // Marca o carrinho como finalizado.
+        await client.query(
+            `UPDATE carrinho
+             SET status_id = 401
+             WHERE id = $1`,
+            [carrinhoId]
+        );
+
+        await client.query("COMMIT");
+
+        return responder(res, 201, {
+            mensagem: "Pedido finalizado com sucesso.",
+            pedido: {
+                ...pedido,
+                produtos: produtosPedido
+            }
+        });
+    } catch (erro) {
+        try {
+            await client.query("ROLLBACK");
+        } catch (erroRollback) {
+            console.error("Erro ao desfazer transaÃ§Ã£o:", erroRollback);
+        }
+
+        console.error("Erro ao finalizar pedido:", erro);
+
+        return responder(res, 500, {
+            mensagem: "Erro interno ao finalizar o pedido."
+        });
+    } finally {
+        client.release();
+    }
+};
+
+module.exports = pedidosFinalizar;
+
+
+
+========== ARQUIVO: src\controllers\pedidos\pedidosHistoricoStatus.js ==========
+
+const pedidosRepository = require("../../repositories/pedidosRepository");
+const roleRepository = require("../../repositories/roleRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const pedidosHistoricoStatus = async (req, res) => {
+    try {
+        const pathname = new URL(
+            req.url,
+            "http://localhost"
+        ).pathname;
+
+        const id = Number(pathname.split("/")[2]);
+        const usuarioId = Number(req.usuario?.id);
+
+        if (!Number.isSafeInteger(id) || id <= 0) {
+            responder(res, 400, {
+                mensagem: "ID do pedido invÃ¡lido."
+            });
+            return;
+        }
+
+        if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
+            responder(res, 401, {
+                mensagem: "UsuÃ¡rio nÃ£o autenticado."
+            });
+            return;
+        }
+
+        const pedidoResult = await pedidosRepository.consultar(id);
+        const pedido = pedidoResult.rows[0];
+
+        if (!pedido || pedido.oculto === true) {
+            responder(res, 404, {
+                mensagem: "Pedido nÃ£o encontrado."
+            });
+            return;
+        }
+
+        if (Number(pedido.user_id) !== usuarioId) {
+            const rolesResult =
+                await roleRepository.lerPorUser(usuarioId);
+
+            const papeis = rolesResult.rows.map((role) =>
+                String(role.role || "").trim().toLowerCase()
+            );
+
+            const permitido = papeis.some(
+                (role) =>
+                    ["admin", "manager", "sac"].includes(role)
+            );
+
+            if (!permitido) {
+                responder(res, 403, {
+                    mensagem:
+                        "VocÃª nÃ£o tem permissÃ£o para consultar o histÃ³rico deste pedido."
+                });
+                return;
+            }
+        }
+
+        const historico =
+            await pedidosRepository.lerHistoricoStatus(id);
+
+        responder(res, 200, historico.rows);
+    } catch (erro) {
+        console.error(
+            "[ERRO AO CONSULTAR HISTÃ“RICO DO PEDIDO]",
+            erro
+        );
+
+        responder(res, 500, {
+            mensagem:
+                "Erro interno ao consultar o histÃ³rico do pedido."
+        });
+    }
+};
+
+module.exports = pedidosHistoricoStatus;
+
+
+========== ARQUIVO: src\controllers\pedidos\pedidosOcultar.js ==========
+
+const pedidosRepository = require("../../repositories/pedidosRepository");
+
+const pedidosOcultar = async (req, res) => {
+
+    let body = "";
+
+    req.on("data", (chunk) => {
+        body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+
+        const dados = JSON.parse(body);
+
+        const {
+            id
+        } = dados;
+
+        const result = await pedidosRepository.ocultar(id);
+
+        if (result.rows.length === 0) {
+
+            res.writeHead(404, {
+                "Content-Type": "application/json"
+            });
+
+            res.end(JSON.stringify({
+                mensagem: "Pedido nÃ£o encontrado"
+            }));
+
+            return;
+        }
+
+        res.writeHead(200, {
+            "Content-Type": "application/json"
+        });
+
+        res.end(JSON.stringify({
+            mensagem: "Pedido ocultado com sucesso"
+        }));
+    });
+};
+
+module.exports = pedidosOcultar;
+
+
+========== ARQUIVO: src\controllers\produtos\index.js ==========
+
+const produtosLer = require("./produtosLer");
+const produtosLerId = require("./produtosLerId");
+const produtosBuscar = require("./produtosBuscar");
+const produtosInserir = require("./produtosInserir");
+const produtosAtualizar = require("./produtosAtualizar");
+const produtosDeletar = require("./produtosDeletar");
+
+module.exports = {
+    produtosLer,
+    produtosLerId,
+    produtosBuscar,
+    produtosInserir,
+    produtosAtualizar,
+    produtosDeletar
+};
+
+
+========== ARQUIVO: src\controllers\produtos\produtosAtualizar.js ==========
+
+const produtoRepository = require("../../repositories/produtoRepository");
+
+const produtosAtualizar = async (req, res) => {
+  const id = req.url.split("/")[3];
+
+  let body = "";
+
+  return new Promise((resolve, reject) => {
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+      const dados = JSON.parse(body);
+
+      const { nome, quantidade, valor } = dados;
+
+      const produtoExiste = await produtoRepository.ler(id);
+
+      if (produtoExiste.rows.length === 0) {
+        res.writeHead(404, {
+          "Content-Type": "application/json"
+        });
+
+        res.end(JSON.stringify({
+          mensagem: "Produto nÃ£o encontrado"
+        }));
+
+        resolve();
+        return;
+      }
+
+      const result = await produtoRepository.atualizar(
+        id,
+        nome,
+        quantidade,
+        valor
+      );
+            
+      res.writeHead(200, {
+        "Content-Type": "application/json"
+      });
+
+      res.end(JSON.stringify(result.rows[0]));
+
+      resolve();
+    });
+  });
+};
+
+module.exports = produtosAtualizar;
+
+
+========== ARQUIVO: src\controllers\produtos\produtosBuscar.js ==========
+
+const produtoRepository = require("../../repositories/produtoRepository");
+
+const produtosBuscar = async (req, res) => {
+  const url = new URL(req.url, "http://localhost");
+  const nome = url.searchParams.get("nome");
+
+  if (!nome) {
+    res.writeHead(400, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+      mensagem: "Informe o nome do produto"
+    }));
+
+    return;
+  }
+
+  const result = await produtoRepository.buscarPorNome(nome);
+
+  if (result.rows.length === 0) {
+    res.writeHead(404, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+      mensagem: "Produto nÃ£o encontrado"
+    }));
+
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "application/json"
+  });
+
+  res.end(JSON.stringify(result.rows));
+};
+
+module.exports = produtosBuscar;
+
+
+
+========== ARQUIVO: src\controllers\produtos\produtosDeletar.js ==========
+
+const produtoRepository = require("../../repositories/produtoRepository");
+
+const produtosDeletar = async (req, res) => {
+  const id = req.url.split("/")[3];
+
+  const result = await produtoRepository.deletar(id);
+
+  if (result.rows.length === 0) {
+    res.writeHead(404, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+      mensagem: "Produto nÃ£o encontrado"
+    }));
+
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "application/json"
+  });
+
+  res.end(JSON.stringify({
+    mensagem: "Produto deletado com sucesso",
+    produto: result.rows[0]
+  }));
+};
+
+module.exports = produtosDeletar;
+
+
+========== ARQUIVO: src\controllers\produtos\produtosInserir.js ==========
+
+const produtoRepository = require("../../repositories/produtoRepository");
+
+const produtosInserir = async (req, res) => {
+  let body = "";
+let code = 201;
+  req.on("data", (chunk) => {
+    body += chunk.toString();
+  });
+
+  req.on("end", async () => {
+    const dados = JSON.parse(body);
+
+    const { nome, quantidade, valor } = dados;
+
+    const produtoExiste = await produtoRepository.inserir(nome);
+
+    if (produtoExiste.rows.length > 0) {
+      res.writeHead(400, {
+        "Content-Type": "application/json"
+      });
+
+      res.end(
+        JSON.stringify({
+          mensagem: "Produto jÃ¡ existe"
+        })
+      );
+
+      return;
+    }
+
+    const resultado = await produtoRepository.inserirProduto(nome, quantidade, valor ); 
+
+    res.writeHead(201, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify(resultado.rows[0]));
+  });
+};
+
+module.exports = produtosInserir;
+
+
+
+========== ARQUIVO: src\controllers\produtos\produtosLer.js ==========
+
+const produtosRepository = require("../../repositories/produtoRepository");
+
+const produtosLer = async (req, res) => {
+  const result = await produtosRepository.lerTudo();
+  res.writeHead(200, {
+    "Content-Type": "application/json"
+  });
+
+  res.end(JSON.stringify(result.rows));
+};
+
+module.exports = produtosLer;
+
+
+========== ARQUIVO: src\controllers\produtos\produtosLerId.js ==========
+
+const produtoRepository = require("../../repositories/produtoRepository");
+
+const produtosLerId = async (req, res) => {
+  const id = req.url.split("/")[3].split("?")[0];
+  const result = await produtoRepository.ler(id);
+
+  if (result.rows.length === 0) {
+    res.writeHead(404, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+      mensagem: "Produto nÃ£o encontrado"
+    }));
+
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "application/json"
+  });
+
+  res.end(JSON.stringify(result.rows[0]));
+};
+
+module.exports = produtosLerId;
+
+
+========== ARQUIVO: src\controllers\produtosPedidos\index.js ==========
+
+const produtosPedidoLer = require("./produtosPedidoLer");
+const produtosPedidoInserir = require("./produtosPedidoInserir");
+const produtosPedidoAtualizar = require("./produtosPedidoAtualizar");
+const produtosPedidoDeletar = require("./produtosPedidoDeletar");
+
+module.exports = {
+
+produtosPedidoLer,
+produtosPedidoInserir,
+produtosPedidoAtualizar,
+produtosPedidoDeletar
+
+};
+
+
+========== ARQUIVO: src\controllers\produtosPedidos\produtosPedidoAtualizar.js ==========
+
+const produtosPedidoRepository = require("../../repositories/produtosPedidoRepository");
+
+const produtosPedidoAtualizar = async (req, res) => {
+
+    let body = "";
+
+    req.on("data", (chunk) => {
+        body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+
+        const dados = JSON.parse(body);
+
+        const {
+            quantidade,
+            valor_unitario
+        } = dados;
+
+        const partes = req.url.split("/");
+
+        const pedido_id = Number(partes[2]);
+        const produto_id = Number(partes[3]);
+
+        const result = await produtosPedidoRepository.atualizar(
+            pedido_id,
+            produto_id,
+            quantidade,
+            valor_unitario
+        );
+
+        if (result.rows.length === 0) {
+
+            res.writeHead(404, {
+                "Content-Type": "application/json"
+            });
+
+            res.end(JSON.stringify({
+                mensagem: "Produto do pedido nÃ£o encontrado"
+            }));
+
+            return;
+        }
+
+        res.writeHead(200, {
+            "Content-Type": "application/json"
+        });
+
+        res.end(JSON.stringify(result.rows[0]));
+    });
+};
+
+module.exports = produtosPedidoAtualizar;
+
+
+========== ARQUIVO: src\controllers\produtosPedidos\produtosPedidoDeletar.js ==========
+
+const produtosPedidoRepository = require("../../repositories/produtosPedidoRepository");
+
+const produtosPedidoDeletar = async (req, res) => {
+
+    const partes = req.url.split("/");
+
+    const pedido_id = Number(partes[2]);
+    const produto_id = Number(partes[3]);
+
+    const result = await produtosPedidoRepository.deletar(
+        pedido_id,
+        produto_id
+    );
+
+    if (result.rows.length === 0) {
+
+        res.writeHead(404, {
+            "Content-Type": "application/json"
+        });
+
+        res.end(JSON.stringify({
+            mensagem: "Produto do pedido nÃ£o encontrado"
+        }));
+
+        return;
+    }
+
+    res.writeHead(200, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+        mensagem: "Produto do pedido deletado com sucesso"
+    }));
+};
+
+module.exports = produtosPedidoDeletar;
+
+
+========== ARQUIVO: src\controllers\produtosPedidos\produtosPedidoInserir.js ==========
+
+const produtosPedidoRepository = require("../../repositories/produtosPedidoRepository");
+
+const produtosPedidoInserir = async (req, res) => {
+
+    let body = "";
+
+    req.on("data", (chunk) => {
+        body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+
+        const dados = JSON.parse(body);
+
+        const {
+            pedido_id,
+            produto_id,
+            quantidade,
+            valor_unitario
+        } = dados;
+
+        const result = await produtosPedidoRepository.inserir(
+            pedido_id,
+            produto_id,
+            quantidade,
+            valor_unitario
+        );
+
+        res.writeHead(201, {
+            "Content-Type": "application/json"
+        });
+
+        res.end(JSON.stringify(result.rows[0]));
+    });
+};
+
+module.exports = produtosPedidoInserir;
+
+
+========== ARQUIVO: src\controllers\produtosPedidos\produtosPedidoLer.js ==========
+
+const produtosPedidoRepository = require("../../repositories/produtosPedidoRepository");
+
+const produtosPedidoLer = async (req, res) => {
+
+    const result = await produtosPedidoRepository.lerTudo();
+
+    res.writeHead(200, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify(result.rows));
+};
+
+module.exports = produtosPedidoLer;
+
+
+========== ARQUIVO: src\controllers\roles\index.js ==========
+
+const roleLer = require("./roleLer");
+const roleAtribuir = require("./roleAtribuir");
+const roleRemover = require("./roleRemover");
+const rolesPorUser = require("./rolesPorUser");
+
+module.exports = {
+    roleLer,
+    roleAtribuir,
+    roleRemover,
+    rolesPorUser
+};
+
+
+========== ARQUIVO: src\controllers\roles\roleAtribuir.js ==========
+
+
+const roleRepository = require("../../repositories/roleRepository");
+const userRepository = require("../../repositories/userRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const ehAdmin = async (userId) => {
+    const resultado = await roleRepository.lerPorUser(userId);
+    const roles = Array.isArray(resultado.rows)
+        ? resultado.rows
+        : [];
+
+    return roles.some(
+        (item) =>
+            String(item.role || "").trim().toLowerCase() === "admin"
+    );
+};
+
+const lerBodyJson = (req) =>
+    new Promise((resolve, reject) => {
+        let data = "";
+        let excedeuLimite = false;
+
+        req.on("data", (chunk) => {
+            if (excedeuLimite) return;
+
+            data += chunk.toString();
+
+            if (data.length > 1024 * 1024) {
+                excedeuLimite = true;
+                reject(new Error("BODY_MUITO_GRANDE"));
+            }
+        });
+
+        req.on("end", () => {
+            if (excedeuLimite) return;
+
+            try {
+                resolve(JSON.parse(data));
+            } catch {
+                reject(new Error("JSON_INVALIDO"));
+            }
+        });
+
+        req.on("error", (erro) => {
+            if (!excedeuLimite) reject(erro);
+        });
+    });
+
+const roleAtribuir = async (req, res) => {
+    try {
+        const pathname = new URL(
+            req.url,
+            "http://localhost"
+        ).pathname;
+
+        const partes = pathname.split("/");
+        const userIdTexto = partes[3];
+        const userId = Number(userIdTexto);
+        const atorId = Number(req.usuario?.id);
+
+        if (!Number.isSafeInteger(atorId) || atorId <= 0) {
+            responder(res, 401, {
+                mensagem: "UsuÃ¡rio nÃ£o autenticado."
+            });
+            return;
+        }
+
+        if (
+            !/^\d+$/.test(userIdTexto || "") ||
+            !Number.isSafeInteger(userId) ||
+            userId <= 0
+        ) {
+            responder(res, 400, {
+                mensagem: "ID de usuÃ¡rio invÃ¡lido."
+            });
+            return;
+        }
+
+        // Apenas administradores podem atribuir papÃ©is.
+        if (!(await ehAdmin(atorId))) {
+            responder(res, 403, {
+                mensagem:
+                    "Somente um administrador pode atribuir papÃ©is."
+            });
+            return;
+        }
+
+        // NÃ£o permite atribuir papÃ©is a usuÃ¡rios inexistentes ou inativos.
+        const usuario = await userRepository.ler(userId);
+
+        if (!usuario.rows || usuario.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "UsuÃ¡rio nÃ£o encontrado ou inativo."
+            });
+            return;
+        }
+
+        const body = await lerBodyJson(req);
+
+        if (
+            !body ||
+            typeof body !== "object" ||
+            Array.isArray(body)
+        ) {
+            responder(res, 400, {
+                mensagem: "Envie um objeto JSON vÃ¡lido."
+            });
+            return;
+        }
+
+        const roleId = body.role_id;
+
+        if (!Number.isSafeInteger(roleId) || roleId <= 0) {
+            responder(res, 400, {
+                mensagem: "Informe um role_id inteiro e vÃ¡lido."
+            });
+            return;
+        }
+
+        const role = await roleRepository.buscarPorId(roleId);
+
+        if (!role) {
+            responder(res, 404, {
+                mensagem: "Papel nÃ£o encontrado."
+            });
+            return;
+        }
+
+        const resultado = await roleRepository.atribuir(
+            userId,
+            roleId
+        );
+
+        if (!resultado.rows || resultado.rows.length === 0) {
+            responder(res, 409, {
+                mensagem:
+                    "Este papel jÃ¡ estÃ¡ atribuÃ­do a este usuÃ¡rio."
+            });
+            return;
+        }
+
+        responder(res, 200, {
+            mensagem: "Papel atribuÃ­do com sucesso.",
+            usuario_id: userId,
+            role_id: roleId,
+            role: role.role
+        });
+    } catch (erro) {
+        if (erro.message === "JSON_INVALIDO") {
+            responder(res, 400, {
+                mensagem:
+                    "O corpo da requisiÃ§Ã£o contÃ©m um JSON invÃ¡lido."
+            });
+            return;
+        }
+
+        if (erro.message === "BODY_MUITO_GRANDE") {
+            responder(res, 413, {
+                mensagem:
+                    "O corpo da requisiÃ§Ã£o excede o tamanho permitido."
+            });
+            return;
+        }
+
+        if (erro.code === "23503") {
+            responder(res, 404, {
+                mensagem: "UsuÃ¡rio ou papel nÃ£o encontrado."
+            });
+            return;
+        }
+
+        console.error("[ERRO AO ATRIBUIR PAPEL]", erro);
+
+        responder(res, 500, {
+            mensagem: "NÃ£o foi possÃ­vel atribuir o papel."
+        });
+    }
+};
+
+module.exports = roleAtribuir;
+
+
+
+========== ARQUIVO: src\controllers\roles\roleLer.js ==========
+
+const roleRepository = require("../../repositories/roleRepository");
+
+const roleLer = async (req, res) => {
+    const resultado = await roleRepository.lerTudo();
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(resultado.rows));
+};
+
+module.exports = roleLer;
+
+
+========== ARQUIVO: src\controllers\roles\roleRemover.js ==========
+
+const roleRepository = require("../../repositories/roleRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const ehAdmin = async (userId) => {
+    const resultado = await roleRepository.lerPorUser(userId);
+    const roles = Array.isArray(resultado.rows)
+        ? resultado.rows
+        : [];
+
+    return roles.some(
+        (item) =>
+            String(item.role || "").trim().toLowerCase() === "admin"
+    );
+};
+
+const roleRemover = async (req, res) => {
+    try {
+        const partes = new URL(
+            req.url,
+            "http://localhost"
+        ).pathname.split("/");
+
+        const userId = Number(partes[3]);
+        const roleId = Number(partes[4]);
+        const atorId = Number(req.usuario?.id);
+
+        if (!Number.isInteger(atorId) || atorId <= 0) {
+            responder(res, 401, {
+                mensagem: "UsuÃ¡rio nÃ£o autenticado."
+            });
+            return;
+        }
+
+        if (!Number.isInteger(userId) || userId <= 0) {
+            responder(res, 400, {
+                mensagem: "ID de usuÃ¡rio invÃ¡lido."
+            });
+            return;
+        }
+
+        if (!Number.isInteger(roleId) || roleId <= 0) {
+            responder(res, 400, {
+                mensagem: "ID de papel invÃ¡lido."
+            });
+            return;
+        }
+
+        // Somente administradores podem remover papÃ©is.
+        if (!(await ehAdmin(atorId))) {
+            responder(res, 403, {
+                mensagem: "Somente um administrador pode remover papÃ©is."
+            });
+            return;
+        }
+
+        const role = await roleRepository.buscarPorId(roleId);
+
+        if (!role) {
+            responder(res, 404, {
+                mensagem: "Papel nÃ£o encontrado."
+            });
+            return;
+        }
+
+        // NÃ£o permite remover o Ãºltimo administrador ativo.
+        if (
+            String(role.role || "").trim().toLowerCase() === "admin"
+        ) {
+            const verificacao =
+                await roleRepository.verificarUltimoAdminAtivo(
+                    userId,
+                    roleId
+                );
+
+            if (
+                verificacao.usuario_e_admin_ativo &&
+                verificacao.total_admins_ativos <= 1
+            ) {
+                responder(res, 409, {
+                    mensagem:
+                        "NÃ£o Ã© possÃ­vel remover o papel admin do Ãºltimo administrador ativo."
+                });
+                return;
+            }
+        }
+
+        const resultado = await roleRepository.remover(
+            userId,
+            roleId
+        );
+
+        if (!resultado.rows || resultado.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "Este papel nÃ£o estÃ¡ atribuÃ­do a este usuÃ¡rio."
+            });
+            return;
+        }
+
+        responder(res, 200, {
+            mensagem: "Papel removido com sucesso.",
+            usuario_id: userId,
+            role_id: roleId,
+            role: role.role
+        });
+    } catch (erro) {
+        console.error("[ERRO AO REMOVER PAPEL]", erro);
+
+        responder(res, 500, {
+            mensagem: "NÃ£o foi possÃ­vel remover o papel."
+        });
+    }
+};
+
+module.exports = roleRemover;
+
+
+========== ARQUIVO: src\controllers\roles\rolesPorUser.js ==========
+
+const roleRepository = require("../../repositories/roleRepository");
+
+const rolesPorUser = async (req, res) => {
+    const userId = req.url.split("/")[3];
+
+    const resultado = await roleRepository.lerPorUser(userId);
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(resultado.rows));
+};
+
+module.exports = rolesPorUser;
+
+
+========== ARQUIVO: src\controllers\users\index.js ==========
+
+
+const usersLer = require("./usersLer");
+const usersLerId = require("./usersLerId");
+const usersBuscar = require("./usersBuscar");
+const usersInserir = require("./usersInserir");
+const usersAtualizar = require("./usersAtualizar");
+const usersDeletar = require("./usersDeletar");
+const usersHistoricoStatus = require("./usersHistoricoStatus");
+const usersLogin = require("./usersLogin");
+
+module.exports = {
+    usersLer,
+    usersLerId,
+    usersBuscar,
+    usersInserir,
+    usersAtualizar,
+    usersDeletar,
+    usersHistoricoStatus,
+    usersLogin
+};
+
+
+
+========== ARQUIVO: src\controllers\users\usersAtualizar.js ==========
+
+const userRepository = require("../../repositories/userRepository");
+
+const usersAtualizar = async (req, res) => {
+    const id = req.url.split("/")[3];
+
+    let body = "";
+
+    return new Promise((resolve) => {
+        req.on("data", (chunk) => {
+            body += chunk.toString();
+        });
+
+        req.on("end", async () => {
+            const dados = body ? JSON.parse(body) : {};
+
+            const {
+                nome,
+                email,
+                telefone,
+                status_id
+            } = dados;
+
+            const userExiste = await userRepository.ler(id);
+
+            if (userExiste.rows.length === 0) {
+                res.writeHead(404, {
+                    "Content-Type": "application/json"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: "Usuario nÃ£o encontrado"
+                }));
+
+                resolve();
+                return;
+            }
+
+            const result = await userRepository.atualizar(
+                id,
+                nome,
+                email,
+                telefone,
+                status_id
+            );
+
+            res.writeHead(200, {
+                "Content-Type": "application/json"
+            });
+
+            res.end(JSON.stringify(result.rows[0]));
+
+            resolve();
+        });
+    });
+};
+
+module.exports = usersAtualizar;
+
+
+========== ARQUIVO: src\controllers\users\usersBuscar.js ==========
+
+const userRepository = require("../../repositories/userRepository");
+
+const usersBuscar = async (req, res) => {
+  const url = new URL(req.url, "http://localhost");
+  const nome = url.searchParams.get("nome");
+
+  if (!nome) {
+    res.writeHead(400, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+      mensagem: "Informe o nome do user"
+    }));
+
+    return;
+  }
+
+  const result = await userRepository.buscarPorNome(nome);
+
+  if (result.rows.length === 0) {
+    res.writeHead(404, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+      mensagem: "User nÃ£o encontrado"
+    }));
+
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "application/json"
+  });
+
+  res.end(JSON.stringify(result.rows));
+};
+
+module.exports = usersBuscar;
+
+
+========== ARQUIVO: src\controllers\users\usersDeletar.js ==========
+
+const userRepository = require("../../repositories/userRepository");
+const roleRepository = require("../../repositories/roleRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const usersDeletar = async (req, res) => {
+    try {
+        const pathname = new URL(
+            req.url,
+            "http://localhost"
+        ).pathname;
+
+        const idTexto = pathname.split("/")[3];
+        const id = Number(idTexto);
+
+        if (
+            !/^\d+$/.test(idTexto || "") ||
+            !Number.isSafeInteger(id) ||
+            id <= 0
+        ) {
+            responder(res, 400, {
+                mensagem: "ID de usuÃ¡rio invÃ¡lido."
+            });
+            return;
+        }
+
+        const usuario = await userRepository.ler(id);
+
+        if (!usuario.rows.length) {
+            responder(res, 404, {
+                mensagem:
+                    "UsuÃ¡rio nÃ£o encontrado ou jÃ¡ desativado."
+            });
+            return;
+        }
+
+        const rolesResult = await roleRepository.lerPorUser(id);
+        const roles = rolesResult.rows || [];
+
+        const roleAdmin = roles.find(
+            (role) =>
+                String(role.role || "").trim().toLowerCase() ===
+                "admin"
+        );
+
+        if (roleAdmin) {
+            const verificacao =
+                await roleRepository.verificarUltimoAdminAtivo(
+                    id,
+                    roleAdmin.id
+                );
+
+            if (
+                verificacao.usuario_e_admin_ativo &&
+                Number(verificacao.total_admins_ativos) <= 1
+            ) {
+                responder(res, 409, {
+                    mensagem:
+                        "NÃ£o Ã© possÃ­vel desativar o Ãºltimo administrador ativo. Atribua o papel admin a outro usuÃ¡rio antes."
+                });
+                return;
+            }
+        }
+
+        const resultado = await userRepository.deletar(id);
+
+        if (!resultado.sucesso) {
+            responder(res, 409, {
+                mensagem: resultado.mensagem
+            });
+            return;
+        }
+
+        responder(res, 200, {
+            mensagem: resultado.mensagem,
+            user: resultado.user
+        });
+    } catch (erro) {
+        console.error("[ERRO AO DESATIVAR USUÃRIO]", erro);
+
+        responder(res, 500, {
+            mensagem: "Erro interno ao desativar usuÃ¡rio."
+        });
+    }
+};
+
+module.exports = usersDeletar;
+
+
+========== ARQUIVO: src\controllers\users\usersHistoricoStatus.js ==========
+
+
+const userRepository = require("../../repositories/userRepository");
+const roleRepository = require("../../repositories/roleRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const usersHistoricoStatus = async (req, res) => {
+    try {
+        const partes = new URL(
+            req.url,
+            "http://localhost"
+        ).pathname.split("/");
+
+        const id = partes[3];
+
+        if (
+            !/^\d+$/.test(String(id || "")) ||
+            Number(id) <= 0
+        ) {
+            responder(res, 400, {
+                mensagem: "Informe um ID de usuÃ¡rio vÃ¡lido na rota."
+            });
+            return;
+        }
+
+        if (!req.usuario || !req.usuario.id) {
+            responder(res, 401, {
+                mensagem: "UsuÃ¡rio nÃ£o autenticado."
+            });
+            return;
+        }
+
+        // Consulta os papÃ©is do usuÃ¡rio autenticado.
+        const resultadoRoles =
+            await roleRepository.lerPorUser(req.usuario.id);
+
+        const papeis = resultadoRoles.rows.map((item) =>
+            String(item.role || "").trim().toLowerCase()
+        );
+
+        // Somente admin e SAC podem consultar o histÃ³rico.
+        const permitido =
+            papeis.includes("admin") ||
+            papeis.includes("sac");
+
+        if (!permitido) {
+            responder(res, 403, {
+                mensagem:
+                    "VocÃª nÃ£o tem permissÃ£o para consultar o histÃ³rico de status de usuÃ¡rios."
+            });
+            return;
+        }
+
+        const userExiste = await userRepository.ler(id);
+
+        if (userExiste.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "UsuÃ¡rio nÃ£o encontrado."
+            });
+            return;
+        }
+
+        const resultado =
+            await userRepository.lerHistoricoStatus(id);
+
+        responder(res, 200, resultado.rows);
+    } catch (erro) {
+        console.error(
+            "[ERRO NO HISTÃ“RICO DE STATUS DO USUÃRIO]",
+            erro
+        );
+
+        responder(res, 500, {
+            mensagem:
+                "Erro interno ao consultar o histÃ³rico de status do usuÃ¡rio."
+        });
+    }
+};
+
+module.exports = usersHistoricoStatus;
+
+
+
+========== ARQUIVO: src\controllers\users\usersInserir.js ==========
+
+
+const bcrypt = require("bcryptjs");
+const pool = require("../../db");
+
+const usersInserir = async (req, res) => {
+    let body = "";
+
+    req.on("data", (chunk) => {
+        body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+        let client;
+
+        try {
+            const dados = body ? JSON.parse(body) : {};
+            const { nome, email, telefone, senha } = dados;
+
+            if (
+                typeof nome !== "string" ||
+                !nome.trim() ||
+                typeof email !== "string" ||
+                !email.trim() ||
+                typeof senha !== "string" ||
+                senha.length < 8
+            ) {
+                res.writeHead(400, {
+                    "Content-Type": "application/json; charset=utf-8"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: "Informe nome, e-mail e senha com pelo menos 8 caracteres."
+                }));
+
+                return;
+            }
+
+            if (
+                telefone !== undefined &&
+                telefone !== null &&
+                typeof telefone !== "string"
+            ) {
+                res.writeHead(400, {
+                    "Content-Type": "application/json; charset=utf-8"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: "O telefone deve ser uma string."
+                }));
+
+                return;
+            }
+
+            const nomeNormalizado = nome.trim();
+            const emailNormalizado = email.trim();
+            const senhaHash = await bcrypt.hash(senha, 10);
+
+            client = await pool.connect();
+            await client.query("BEGIN");
+
+            const usuarioExiste = await client.query(
+                `SELECT id
+                 FROM users
+                 WHERE LOWER(email) = LOWER($1)
+                 LIMIT 1`,
+                [emailNormalizado]
+            );
+
+            if (usuarioExiste.rowCount > 0) {
+                await client.query("ROLLBACK");
+
+                res.writeHead(409, {
+                    "Content-Type": "application/json; charset=utf-8"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: "JÃ¡ existe um usuÃ¡rio com este e-mail."
+                }));
+
+                return;
+            }
+
+            const resultadoRole = await client.query(
+                `SELECT id, role
+                 FROM roles
+                 WHERE LOWER(role) = 'client'
+                 LIMIT 1`
+            );
+
+            if (resultadoRole.rowCount === 0) {
+                await client.query("ROLLBACK");
+
+                res.writeHead(500, {
+                    "Content-Type": "application/json; charset=utf-8"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: "A role client nÃ£o estÃ¡ cadastrada no banco."
+                }));
+
+                return;
+            }
+
+            const roleClient = resultadoRole.rows[0];
+
+            const resultadoUsuario = await client.query(
+                `INSERT INTO users
+                    (nome, email, telefone, senha_hash, ativo)
+                 VALUES ($1, $2, $3, $4, TRUE)
+                 RETURNING id, nome, email, telefone, ativo`,
+                [
+                    nomeNormalizado,
+                    emailNormalizado,
+                    telefone || null,
+                    senhaHash
+                ]
+            );
+
+            const usuario = resultadoUsuario.rows[0];
+
+            await client.query(
+                `INSERT INTO users_roles (user_id, role_id)
+                 VALUES ($1, $2)`,
+                [usuario.id, roleClient.id]
+            );
+
+            await client.query("COMMIT");
+
+            res.writeHead(201, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            res.end(JSON.stringify({
+                mensagem: "UsuÃ¡rio cadastrado com sucesso.",
+                usuario,
+                roles: [
+                    {
+                        id: roleClient.id,
+                        role: roleClient.role
+                    }
+                ]
+            }));
+        } catch (erro) {
+            if (client) {
+                try {
+                    await client.query("ROLLBACK");
+                } catch (erroRollback) {
+                    console.error(erroRollback.message);
+                }
+            }
+
+            console.error("[ERRO AO CADASTRAR USUÃRIO]", erro.message);
+
+            if (!res.headersSent) {
+                const conflito = erro.code === "23505";
+
+                res.writeHead(conflito ? 409 : 500, {
+                    "Content-Type": "application/json; charset=utf-8"
+                });
+
+                res.end(JSON.stringify({
+                    mensagem: conflito
+                        ? "JÃ¡ existe um usuÃ¡rio com estes dados Ãºnicos."
+                        : "NÃ£o foi possÃ­vel cadastrar o usuÃ¡rio."
+                }));
+            }
+        } finally {
+            if (client) {
+                client.release();
+            }
+        }
+    });
+};
+
+module.exports = usersInserir;
+
+
+
+========== ARQUIVO: src\controllers\users\usersLer.js ==========
+
+const userRepository = require("../../repositories/userRepository");
+
+const usersLer = async (req, res) => {
+
+  const result = await userRepository.lerTudo();
+
+  res.writeHead(200, {
+    "Content-Type": "application/json"
+  });
+
+  res.end(JSON.stringify(result.rows));
+
+};
+
+module.exports = usersLer;
+
+
+
+
+========== ARQUIVO: src\controllers\users\usersLerId.js ==========
+
+const userRepository = require("../../repositories/userRepository");
+
+const usersLerId = async (req, res) => {
+  const id = req.url.split("/")[3].split("?")[0];
+  const result = await userRepository.ler(id);
+
+  if (result.rows.length === 0) {
+    res.writeHead(404, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+      mensagem: "User nÃ£o encontrado"
+    }));
+
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "application/json"
+  });
+
+  res.end(JSON.stringify(result.rows[0]));
+};
+
+module.exports = usersLerId;
+
+
+========== ARQUIVO: src\controllers\users\usersLogin.js ==========
+
+
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+
+const userRepository = require("../../repositories/userRepository");
+const roleRepository = require("../../repositories/roleRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const usersLogin = async (req, res) => {
+    let body = "";
+
+    req.on("data", (chunk) => {
+        body += chunk.toString();
+
+        if (body.length > 1024 * 1024) {
+            responder(res, 413, {
+                mensagem: "Corpo da requisiÃ§Ã£o muito grande."
+            });
+            req.destroy();
+        }
+    });
+
+    req.on("end", async () => {
+        if (res.writableEnded) return;
+
+        try {
+            const dados = body ? JSON.parse(body) : {};
+            const email = dados.email;
+            const senha = dados.senha;
+
+            if (
+                typeof email !== "string" ||
+                typeof senha !== "string" ||
+                !email.trim() ||
+                !senha
+            ) {
+                responder(res, 400, {
+                    mensagem: "Informe o e-mail e a senha."
+                });
+                return;
+            }
+
+            const resultado =
+                await userRepository.buscarPorEmailParaLogin(
+                    email.trim()
+                );
+
+            if (resultado.rows.length === 0) {
+                responder(res, 401, {
+                    mensagem: "E-mail ou senha invÃ¡lidos."
+                });
+                return;
+            }
+
+            const usuario = resultado.rows[0];
+
+            if (usuario.ativo !== true || !usuario.senha_hash) {
+                responder(res, 401, {
+                    mensagem: "E-mail ou senha invÃ¡lidos."
+                });
+                return;
+            }
+
+            const senhaCorreta = await bcrypt.compare(
+                senha,
+                usuario.senha_hash
+            );
+
+            if (!senhaCorreta) {
+                responder(res, 401, {
+                    mensagem: "E-mail ou senha invÃ¡lidos."
+                });
+                return;
+            }
+
+            // Retorna somente o ID de cada papel.
+            const resultadoRoles =
+                await roleRepository.lerPorUser(usuario.id);
+
+            const roles = resultadoRoles.rows.map((role) => ({
+                id: role.id
+            }));
+
+            const segredo = process.env.JWT_SECRET;
+
+            if (!segredo) {
+                throw new Error("JWT_SECRET nÃ£o configurado.");
+            }
+
+            // O ID continua no token para autenticaÃ§Ã£o interna,
+            // mas nÃ£o serÃ¡ incluÃ­do no objeto usuario da resposta.
+            const token = jwt.sign(
+                {
+                    sub: String(usuario.id)
+                },
+                segredo,
+                {
+                    expiresIn: "2h"
+                }
+            );
+
+            // MantÃ©m o ID disponÃ­vel internamente para os logs.
+            req.usuario = {
+                id: usuario.id
+            };
+
+            req.logMensagem = "Login realizado com sucesso.";
+
+            responder(res, 200, {
+                mensagem: "Login realizado com sucesso.",
+                token,
+                usuario: {
+                    nome: usuario.nome,
+                    email: usuario.email
+                },
+                roles
+            });
+        } catch (erro) {
+            console.error("[ERRO NO LOGIN]", erro.message);
+
+            responder(res, 500, {
+                mensagem: "Erro interno ao realizar login."
+            });
+        }
+    });
+};
+
+module.exports = usersLogin;
+
+
+
+========== ARQUIVO: src\db.js ==========
+
+require("dotenv").config();
+
+const { Pool } = require("pg");
+
+const pool = new Pool({
+  host: process.env.DB_HOST || "localhost",
+  port: Number(process.env.DB_PORT || 5432),
+  user: process.env.DB_USER || "postgres",
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME || "portifolio",
+});
+
+module.exports = pool;
+
+
+========== ARQUIVO: src\index.js ==========
+
+
+require("dotenv").config();
+
+const http = require("http");
+const routes = require("./routes");
+const logRepository = require("./repositories/logRepository");
+const autenticar = require("./middlewares/autenticar");
+const autorizar = require("./middlewares/autorizar");
+
+const server = http.createServer(async (req, res) => {
+    const inicio = Date.now();
+    const url = new URL(req.url, "http://localhost");
+    const rota = url.pathname;
+    const metodo = req.method;
+
+    const ignorarLog =
+        rota === "/logs" || rota.startsWith("/logs/");
+
+    const ip = req.socket.remoteAddress || null;
+    const user_agent = req.headers["user-agent"] || null;
+
+    res.on("finish", () => {
+        if (ignorarLog) return;
+
+        const mensagem =
+            `RequisiÃ§Ã£o ${metodo} ${rota} finalizada ` +
+            `com status ${res.statusCode} em ${Date.now() - inicio}ms`;
+
+        logRepository.inserir(
+            metodo,
+            rota,
+            res.statusCode,
+            mensagem,
+            ip,
+            user_agent,
+            req.usuario?.id ?? null
+        ).catch((erro) => {
+            console.error("[ERRO AO REGISTRAR LOG]", erro.message);
+        });
+    });
+
+    try {
+        const consultaPublicaProduto =
+            metodo === "GET" &&
+            (
+                rota === "/produtos/ler" ||
+                /^\/produtos\/ler\/\d+$/.test(rota) ||
+                rota === "/produtos/buscar"
+            );
+
+        if (
+            rota === "/users/login" ||
+            rota === "/users/inserir" ||
+            consultaPublicaProduto
+        ) {
+            if (consultaPublicaProduto) {
+                await routes.produtosRoutes(req, res);
+            } else {
+                await routes.usersRoutes(req, res);
+            }
+            return;
+        }
+
+        autenticar(req, res, () => {
+            autorizar(req, res, async () => {
+                try {
+                    if (rota.startsWith("/produtos-pedido")) {
+                        await routes.produtosPedidoRoutes(req, res);
+                    } else if (rota.startsWith("/produtos")) {
+                        await routes.produtosRoutes(req, res);
+                    } else if (rota.startsWith("/cart")) {
+                        await routes.cartRoutes(req, res);
+                    } else if (rota.startsWith("/pedido")) {
+                        await routes.pedidosRoutes(req, res);
+                    } else if (rota.startsWith("/enderecos")) {
+                        await routes.enderecosRoutes(req, res);
+                    } else if (rota.startsWith("/caixa")) {
+                        await routes.caixaRoutes(req, res);
+                    } else if (rota.startsWith("/roles")) {
+                        await routes.rolesRoutes(req, res);
+                    } else if (rota.startsWith("/logs")) {
+                        await routes.logsRoutes(req, res);
+                    } else if (rota.startsWith("/users")) {
+                        await routes.usersRoutes(req, res);
+                    } else if (!res.writableEnded) {
+                        res.writeHead(404, {
+                            "Content-Type": "application/json; charset=utf-8"
+                        });
+                        res.end(JSON.stringify({
+                            mensagem: "Rota nÃ£o encontrada"
+                        }));
+                    }
+                } catch (erro) {
+                    console.error("[ERRO NA ROTA]", erro);
+
+                    if (!res.writableEnded) {
+                        res.writeHead(500, {
+                            "Content-Type": "application/json; charset=utf-8"
+                        });
+                        res.end(JSON.stringify({
+                            mensagem: "Erro interno do servidor."
+                        }));
+                    }
+                }
+            });
+        });
+    } catch (erro) {
+        console.error("[ERRO NO SERVIDOR]", erro);
+
+        if (!res.writableEnded) {
+            res.writeHead(500, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+            res.end(JSON.stringify({
+                mensagem: "Erro interno do servidor."
+            }));
+        }
+    }
+});
+
+server.listen(3000, () => {
+    console.log("Servidor rodando em http://localhost:3000");
+});
+
+
+
+========== ARQUIVO: src\middlewares\autenticar.js ==========
+
+const jwt = require("jsonwebtoken");
+
+const autenticar = (req, res, proximo) => {
+    const responder = (status, dados) => {
+        res.writeHead(status, {
+            "Content-Type": "application/json; charset=utf-8"
+        });
+        res.end(JSON.stringify(dados));
+    };
+
+    const autorizacao = req.headers.authorization;
+
+    if (!autorizacao || !autorizacao.startsWith("Bearer ")) {
+        responder(401, {
+            mensagem: "Token de autenticaÃ§Ã£o nÃ£o informado."
+        });
+        return;
+    }
+
+    const token = autorizacao.slice(7);
+    const segredo = process.env.JWT_SECRET;
+
+    if (!segredo) {
+        console.error("JWT_SECRET nÃ£o estÃ¡ configurado.");
+        responder(500, {
+            mensagem: "Erro de configuraÃ§Ã£o da autenticaÃ§Ã£o."
+        });
+        return;
+    }
+
+    try {
+        const payload = jwt.verify(token, segredo);
+        const userId = Number(payload.sub);
+
+        if (!Number.isInteger(userId) || userId <= 0) {
+            responder(401, {
+                mensagem: "Token invÃ¡lido."
+            });
+            return;
+        }
+
+        req.usuario = { id: userId };
+        proximo();
+    } catch (erro) {
+        responder(401, {
+            mensagem: "Token invÃ¡lido ou expirado."
+        });
+    }
+};
+
+module.exports = autenticar;
+
+
+
+========== ARQUIVO: src\middlewares\autorizar.js ==========
+
+
+const permissionRepository = require("../repositories/permissionRepository");
+
+function normalizarRota(pathname) {
+    return pathname
+        .split("/")
+        .map((parte) => /^\d+$/.test(parte) ? ":id" : parte)
+        .join("/");
+}
+
+function responder(res, status, mensagem) {
+    if (res.writableEnded) {
+        return;
+    }
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify({ mensagem }));
+}
+
+async function autorizar(req, res, proximo) {
+    try {
+        if (!req.usuario || !req.usuario.id) {
+            responder(res, 401, "UsuÃ¡rio nÃ£o autenticado.");
+            return;
+        }
+
+        const url = new URL(req.url, "http://localhost");
+        const rota = normalizarRota(url.pathname);
+        const metodo = req.method.toUpperCase();
+
+        // A consulta individual de pedido possui regras prÃ³prias
+        // no controlador pedidosConsultar.js.
+        // A autenticaÃ§Ã£o JWT jÃ¡ foi validada antes deste middleware.
+        if (
+            metodo === "GET" &&
+            /^\/pedido\/\d+$/.test(url.pathname)
+        ) {
+            proximo();
+            return;
+        }
+
+        // Verifica se a rota e o mÃ©todo estÃ£o cadastrados.
+        const permissao =
+            await permissionRepository.buscarPermissaoPorRotaEMetodo(
+                rota,
+                metodo
+            );
+
+        if (!permissao) {
+            responder(
+                res,
+                403,
+                "Esta operaÃ§Ã£o nÃ£o possui permissÃ£o cadastrada."
+            );
+            return;
+        }
+
+        // Verifica se alguma role do usuÃ¡rio concede essa permissÃ£o.
+        const permitido =
+            await permissionRepository.usuarioTemPermissao(
+                req.usuario.id,
+                rota,
+                metodo
+            );
+
+        if (!permitido) {
+            responder(
+                res,
+                403,
+                "VocÃª nÃ£o tem permissÃ£o para esta operaÃ§Ã£o."
+            );
+            return;
+        }
+
+        proximo();
+    } catch (erro) {
+        console.error("[ERRO NA AUTORIZAÃ‡ÃƒO]", erro);
+
+        responder(
+            res,
+            500,
+            "Erro ao verificar as permissÃµes."
+        );
+    }
+}
+
+module.exports = autorizar;
+
+
+
+========== ARQUIVO: src\repositories\caixaRepository.js ==========
+
+const pool = require("../db");
+
+const inserir = async (
+    user_id,
+    pedido_id,
+    tipo_movimentacao_id,
+    subtotal,
+    desconto,
+    frete,
+    acrescimo,
+    total,
+    forma_pagamento_id,
+    pagamento_status_id,
+    descricao
+) => {
+    const resultado = await pool.query(
+        `INSERT INTO caixa (
+            user_id,
+            pedido_id,
+            tipo_movimentacao_id,
+            subtotal,
+            desconto,
+            frete,
+            acrescimo,
+            total,
+            forma_pagamento_id,
+            pagamento_status_id,
+            descricao
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id`,
+        [
+            user_id || null,
+            pedido_id || null,
+            tipo_movimentacao_id,
+            subtotal || 0,
+            desconto || 0,
+            frete || 0,
+            acrescimo || 0,
+            total || 0,
+            forma_pagamento_id || null,
+            pagamento_status_id || null,
+            descricao || null
+        ]
+    );
+
+    return await pool.query(
+        `
+        SELECT
+            c.id,
+            c.user_id,
+            c.pedido_id,
+            tm.nome AS tipo_movimentacao,
+            c.subtotal,
+            c.desconto,
+            c.frete,
+            c.acrescimo,
+            c.total,
+            fp.nome AS forma_pagamento,
+            ps.nome AS pagamento_status,
+            c.descricao
+        FROM caixa c
+        LEFT JOIN tipo_movimentacao_caixa tm_id
+            ON tm_id.id = c.tipo_movimentacao_id
+        LEFT JOIN status tm
+            ON tm.id = tm_id.id
+        LEFT JOIN forma_de_pagamento fp_id
+            ON fp_id.id = c.forma_pagamento_id
+        LEFT JOIN status fp
+            ON fp.id = fp_id.id
+        LEFT JOIN pagamentos_status ps_id
+            ON ps_id.id = c.pagamento_status_id
+        LEFT JOIN status ps
+            ON ps.id = ps_id.id
+        WHERE c.id = $1
+        `,
+        [resultado.rows[0].id]
+    );

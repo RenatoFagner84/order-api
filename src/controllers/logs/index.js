@@ -1,10 +1,9 @@
-
 const logsInserir = require("./logsInserir");
-const logsListar = require("./logsListar");
 const logsLer = require("./logsLer");
+const logsListar = require("./logsListar");
 
 module.exports = {
     logsInserir,
-    logsListar,
-    logsLer
+    logsLer,
+    logsListar
 };

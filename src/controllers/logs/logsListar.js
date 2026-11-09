@@ -1,38 +1,69 @@
-
 const logRepository = require("../../repositories/logRepository");
 
-const listar = async (req, res) => {
-    let { limite, pagina } = req.query;
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
 
-    limite = parseInt(limite, 10) || 100;
-    pagina = parseInt(pagina, 10) || 1;
-
-    if (limite < 1 || limite > 500 || pagina < 1) {
-        res.writeHead(400, {
-            "Content-Type": "application/json"
-        });
-
-        return res.end(JSON.stringify({
-            mensagem: "Parâmetros de paginação inválidos."
-        }));
-    }
-
-    const offset = (pagina - 1) * limite;
-
-    const resultado = await logRepository.listar(limite, offset);
-    const total = await logRepository.contar();
-
-    res.writeHead(200, {
-        "Content-Type": "application/json"
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
     });
 
-    return res.end(JSON.stringify({
-        mensagem: "Logs listados com sucesso.",
-        pagina,
-        limite,
-        total: Number(total.rows[0].total),
-        logs: resultado.rows
-    }));
+    res.end(JSON.stringify(dados));
 };
 
-module.exports = listar;
+const logsListar = async (req, res) => {
+    try {
+        const query = req.query || {};
+
+        const limiteInformado = query.limite;
+        const paginaInformada = query.pagina;
+
+        const limite = limiteInformado === undefined || limiteInformado === ""
+            ? 100
+            : Number(limiteInformado);
+
+        const pagina = paginaInformada === undefined || paginaInformada === ""
+            ? 1
+            : Number(paginaInformada);
+
+        if (
+            !Number.isSafeInteger(limite) ||
+            limite < 1 ||
+            limite > 500 ||
+            !Number.isSafeInteger(pagina) ||
+            pagina < 1
+        ) {
+            responder(res, 400, {
+                mensagem: "Parâmetros de paginação inválidos."
+            });
+            return;
+        }
+
+        const offset = (pagina - 1) * limite;
+
+        if (!Number.isSafeInteger(offset)) {
+            responder(res, 400, {
+                mensagem: "Parâmetros de paginação inválidos."
+            });
+            return;
+        }
+
+        const resultado = await logRepository.listar(limite, offset);
+        const total = await logRepository.contar();
+
+        responder(res, 200, {
+            mensagem: "Logs listados com sucesso.",
+            pagina,
+            limite,
+            total: Number(total.rows[0].total),
+            logs: resultado.rows
+        });
+    } catch (erro) {
+        console.error("[ERRO AO LISTAR LOGS]", erro);
+
+        responder(res, 500, {
+            mensagem: "Não foi possível listar os logs."
+        });
+    }
+};
+
+module.exports = logsListar;

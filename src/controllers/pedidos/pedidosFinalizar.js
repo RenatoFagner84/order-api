@@ -1,7 +1,7 @@
 const pool = require("../../db");
 
 const responder = (res, status, dados) => {
-    if (res.writableEnded) return;
+    if (res.writableEnded || res.headersSent) return;
 
     res.writeHead(status, {
         "Content-Type": "application/json; charset=utf-8"
@@ -11,28 +11,56 @@ const responder = (res, status, dados) => {
 };
 
 const pedidosFinalizar = async (req, res) => {
-    const partes = new URL(req.url, "http://localhost:3000").pathname.split("/");
-    const carrinhoId = Number(partes[2]);
-    const userId = Number(req.usuario?.id);
-
-    if (!Number.isInteger(carrinhoId) || carrinhoId <= 0) {
-        return responder(res, 400, {
-            mensagem: "ID do carrinho inválido."
-        });
-    }
-
-    if (!Number.isInteger(userId) || userId <= 0) {
-        return responder(res, 401, {
+    if (
+        !req.usuario ||
+        req.usuario.id === undefined ||
+        req.usuario.id === null
+    ) {
+        responder(res, 401, {
             mensagem: "Usuário não autenticado."
         });
+        return;
     }
 
-    const client = await pool.connect();
+    const partes = new URL(
+        req.url,
+        "http://localhost"
+    ).pathname.split("/");
+
+    const carrinhoIdTexto = partes[2];
+    const carrinhoId = Number(carrinhoIdTexto);
+    const userId = Number(req.usuario.id);
+
+    if (
+        !/^\d+$/.test(carrinhoIdTexto || "") ||
+        !Number.isSafeInteger(carrinhoId) ||
+        carrinhoId <= 0
+    ) {
+        responder(res, 400, {
+            mensagem: "ID do carrinho inválido."
+        });
+        return;
+    }
+
+    if (
+        !Number.isSafeInteger(userId) ||
+        userId <= 0
+    ) {
+        responder(res, 401, {
+            mensagem: "Usuário não autenticado."
+        });
+        return;
+    }
+
+    let client;
+    let transacaoIniciada = false;
 
     try {
-        await client.query("BEGIN");
+        client = await pool.connect();
 
-        // Busca e bloqueia o carrinho.
+        await client.query("BEGIN");
+        transacaoIniciada = true;
+
         const carrinhoResult = await client.query(
             `SELECT id, user_id, status_id, oculto
              FROM carrinho
@@ -41,37 +69,52 @@ const pedidosFinalizar = async (req, res) => {
             [carrinhoId]
         );
 
+        if (!carrinhoResult || !Array.isArray(carrinhoResult.rows)) {
+            throw new Error("Resposta inválida ao consultar o carrinho.");
+        }
+
         if (carrinhoResult.rows.length === 0) {
             await client.query("ROLLBACK");
-            return responder(res, 404, {
+            transacaoIniciada = false;
+
+            responder(res, 404, {
                 mensagem: "Carrinho não encontrado."
             });
+            return;
         }
 
         const carrinho = carrinhoResult.rows[0];
 
         if (Number(carrinho.user_id) !== userId) {
             await client.query("ROLLBACK");
-            return responder(res, 403, {
+            transacaoIniciada = false;
+
+            responder(res, 403, {
                 mensagem: "Você não tem permissão para finalizar este carrinho."
             });
+            return;
         }
 
         if (carrinho.oculto) {
             await client.query("ROLLBACK");
-            return responder(res, 409, {
+            transacaoIniciada = false;
+
+            responder(res, 409, {
                 mensagem: "Este carrinho não está disponível."
             });
+            return;
         }
 
         if (Number(carrinho.status_id) === 401) {
             await client.query("ROLLBACK");
-            return responder(res, 409, {
+            transacaoIniciada = false;
+
+            responder(res, 409, {
                 mensagem: "Este carrinho já foi finalizado."
             });
+            return;
         }
 
-        // Busca os produtos e bloqueia as linhas de estoque.
         const produtosResult = await client.query(
             `SELECT
                 pc.produto_id,
@@ -87,38 +130,49 @@ const pedidosFinalizar = async (req, res) => {
             [carrinhoId]
         );
 
-        if (produtosResult.rows.length === 0) {
-            await client.query("ROLLBACK");
-            return responder(res, 400, {
-                mensagem: "Não é possível finalizar um carrinho vazio."
-            });
+        if (!produtosResult || !Array.isArray(produtosResult.rows)) {
+            throw new Error("Resposta inválida ao consultar os produtos.");
         }
 
-        const produtosInvalidos = produtosResult.rows.filter(produto => {
+        if (produtosResult.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transacaoIniciada = false;
+
+            responder(res, 400, {
+                mensagem: "Não é possível finalizar um carrinho vazio."
+            });
+            return;
+        }
+
+        const produtosInvalidos = produtosResult.rows.filter((produto) => {
             const quantidade = Number(produto.quantidade);
             const estoque = Number(produto.quantidade_estoque);
 
             return (
-                !Number.isInteger(quantidade) ||
+                !Number.isSafeInteger(quantidade) ||
                 quantidade <= 0 ||
+                !Number.isSafeInteger(estoque) ||
+                estoque < 0 ||
                 quantidade > estoque
             );
         });
 
         if (produtosInvalidos.length > 0) {
             await client.query("ROLLBACK");
-            return responder(res, 409, {
+            transacaoIniciada = false;
+
+            responder(res, 409, {
                 mensagem: "Estoque insuficiente ou quantidade inválida.",
-                produtos: produtosInvalidos.map(produto => ({
+                produtos: produtosInvalidos.map((produto) => ({
                     produto_id: produto.produto_id,
                     nome: produto.nome,
                     quantidade_solicitada: produto.quantidade,
                     quantidade_estoque: produto.quantidade_estoque
                 }))
             });
+            return;
         }
 
-        // Cria o pedido como pendente (status 200).
         const pedidoResult = await client.query(
             `INSERT INTO pedidos (user_id, status_id, oculto)
              VALUES ($1, $2, false)
@@ -126,12 +180,22 @@ const pedidosFinalizar = async (req, res) => {
             [userId, 200]
         );
 
+        if (!pedidoResult || !Array.isArray(pedidoResult.rows) || !pedidoResult.rows[0]) {
+            throw new Error("Não foi possível criar o pedido.");
+        }
+
         const pedido = pedidoResult.rows[0];
         const produtosPedido = [];
 
         for (const produto of produtosResult.rows) {
             const quantidade = Number(produto.quantidade);
             const valorUnitario = Number(produto.valor);
+
+            if (!Number.isFinite(valorUnitario) || valorUnitario < 0) {
+                throw new Error(
+                    `Valor inválido para o produto ${produto.produto_id}.`
+                );
+            }
 
             const produtoPedidoResult = await client.query(
                 `INSERT INTO produtos_pedido
@@ -146,6 +210,16 @@ const pedidosFinalizar = async (req, res) => {
                 ]
             );
 
+            if (
+                !produtoPedidoResult ||
+                !Array.isArray(produtoPedidoResult.rows) ||
+                !produtoPedidoResult.rows[0]
+            ) {
+                throw new Error(
+                    `Não foi possível adicionar o produto ${produto.produto_id} ao pedido.`
+                );
+            }
+
             const estoqueResult = await client.query(
                 `UPDATE produtos
                  SET quantidade = quantidade - $1
@@ -155,7 +229,11 @@ const pedidosFinalizar = async (req, res) => {
                 [quantidade, produto.produto_id]
             );
 
-            if (estoqueResult.rows.length === 0) {
+            if (
+                !estoqueResult ||
+                !Array.isArray(estoqueResult.rows) ||
+                estoqueResult.rows.length === 0
+            ) {
                 throw new Error(
                     `Não foi possível atualizar o estoque do produto ${produto.produto_id}.`
                 );
@@ -168,7 +246,6 @@ const pedidosFinalizar = async (req, res) => {
             });
         }
 
-        // Marca o carrinho como finalizado.
         await client.query(
             `UPDATE carrinho
              SET status_id = 401
@@ -177,8 +254,9 @@ const pedidosFinalizar = async (req, res) => {
         );
 
         await client.query("COMMIT");
+        transacaoIniciada = false;
 
-        return responder(res, 201, {
+        responder(res, 201, {
             mensagem: "Pedido finalizado com sucesso.",
             pedido: {
                 ...pedido,
@@ -186,19 +264,23 @@ const pedidosFinalizar = async (req, res) => {
             }
         });
     } catch (erro) {
-        try {
-            await client.query("ROLLBACK");
-        } catch (erroRollback) {
-            console.error("Erro ao desfazer transação:", erroRollback);
+        if (client && transacaoIniciada) {
+            try {
+                await client.query("ROLLBACK");
+            } catch (erroRollback) {
+                console.error("[ERRO AO DESFAZER TRANSAÇÃO]", erroRollback);
+            }
         }
 
-        console.error("Erro ao finalizar pedido:", erro);
+        console.error("[ERRO AO FINALIZAR PEDIDO]", erro);
 
-        return responder(res, 500, {
+        responder(res, 500, {
             mensagem: "Erro interno ao finalizar o pedido."
         });
     } finally {
-        client.release();
+        if (client) {
+            client.release();
+        }
     }
 };
 

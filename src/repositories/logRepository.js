@@ -9,7 +9,7 @@ const inserir = async (
     user_agent,
     user_id = null
 ) => {
-    return await pool.query(
+    return pool.query(
         `INSERT INTO logs (
             metodo,
             rota,
@@ -34,7 +34,7 @@ const inserir = async (
 };
 
 const listar = async (limite = 100, offset = 0) => {
-    return await pool.query(
+    return pool.query(
         `SELECT
             id,
             metodo,
@@ -45,15 +45,15 @@ const listar = async (limite = 100, offset = 0) => {
             user_agent,
             user_id,
             data_criacao
-        FROM logs
-        ORDER BY data_criacao DESC, id DESC
-        LIMIT $1 OFFSET $2`,
+         FROM logs
+         ORDER BY data_criacao DESC, id DESC
+         LIMIT $1 OFFSET $2`,
         [limite, offset]
     );
 };
 
 const ler = async (id) => {
-    return await pool.query(
+    return pool.query(
         `SELECT
             id,
             metodo,
@@ -64,14 +64,14 @@ const ler = async (id) => {
             user_agent,
             user_id,
             data_criacao
-        FROM logs
-        WHERE id = $1`,
+         FROM logs
+         WHERE id = $1`,
         [id]
     );
 };
 
 const contar = async () => {
-    return await pool.query(
+    return pool.query(
         `SELECT COUNT(*) AS total
          FROM logs`
     );

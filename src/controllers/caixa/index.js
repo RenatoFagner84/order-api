@@ -1,17 +1,17 @@
 const caixaInserir = require("./caixaInserir");
-const caixaListar = require("./caixaListar");
 const caixaLer = require("./caixaLer");
-const caixaListarPorUser = require("./caixaListarPorUser");
-const caixaListarPorPedido = require("./caixaListarPorPedido");
+const caixaListar = require("./caixaListar");
 const caixaAtualizar = require("./caixaAtualizar");
 const caixaDeletar = require("./caixaDeletar");
+const caixaListarPorUser = require("./caixaListarPorUser");
+const caixaListarPorPedido = require("./caixaListarPorPedido");
 
 module.exports = {
     caixaInserir,
-    caixaListar,
     caixaLer,
-    caixaListarPorUser,
-    caixaListarPorPedido,
+    caixaListar,
     caixaAtualizar,
-    caixaDeletar
+    caixaDeletar,
+    caixaListarPorUser,
+    caixaListarPorPedido
 };

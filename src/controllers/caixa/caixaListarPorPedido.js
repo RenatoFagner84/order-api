@@ -1,15 +1,46 @@
 const caixaRepository = require("../../repositories/caixaRepository");
 
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
 const caixaListarPorPedido = async (req, res) => {
-  const pedido_id = req.url.split("/")[3];
+    const pathname = new URL(
+        req.url,
+        "http://localhost"
+    ).pathname;
 
-  const resultado = await caixaRepository.listarPorPedido(pedido_id);
+    const pedidoIdTexto = pathname.split("/")[3];
+    const pedidoId = Number(pedidoIdTexto);
 
-  res.writeHead(200, {
-    "Content-Type": "application/json"
-  });
+    if (
+        !/^\d+$/.test(pedidoIdTexto || "") ||
+        !Number.isSafeInteger(pedidoId) ||
+        pedidoId <= 0
+    ) {
+        responder(res, 400, {
+            mensagem: "ID do pedido inválido."
+        });
+        return;
+    }
 
-  res.end(JSON.stringify(resultado.rows));
+    try {
+        const resultado = await caixaRepository.listarPorPedido(pedidoId);
+
+        responder(res, 200, resultado.rows);
+    } catch (erro) {
+        console.error("[ERRO AO LISTAR MOVIMENTAÇÕES POR PEDIDO]", erro);
+
+        responder(res, 500, {
+            mensagem: "Erro interno ao listar as movimentações do pedido."
+        });
+    }
 };
 
 module.exports = caixaListarPorPedido;

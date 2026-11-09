@@ -1,54 +1,89 @@
 const roleRepository = require("../../repositories/roleRepository");
+const userRepository = require("../../repositories/userRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const ehAdmin = async (userId) => {
+    const resultado = await roleRepository.lerPorUser(userId);
+    const roles = Array.isArray(resultado.rows) ? resultado.rows : [];
+
+    return roles.some(
+        (item) => String(item.role || "").trim().toLowerCase() === "admin"
+    );
+};
+
+const lerBodyJson = async (req) => {
+    let body = "";
+
+    for await (const chunk of req) {
+        body += chunk.toString();
+
+        if (body.length > 1024 * 1024) {
+            const erro = new Error("BODY_MUITO_GRANDE");
+            throw erro;
+        }
+    }
+
+    try {
+        return JSON.parse(body);
+    } catch {
+        throw new Error("JSON_INVALIDO");
+    }
+};
 
 const roleAtribuir = async (req, res) => {
-    const responder = (status, dados) => {
-        if (res.writableEnded) {
+    try {
+        const partes = new URL(req.url, "http://localhost").pathname.split("/");
+        const userIdTexto = partes[3];
+        const userId = Number(userIdTexto);
+        const atorId = Number(req.usuario?.id);
+
+        if (!Number.isSafeInteger(atorId) || atorId <= 0) {
+            responder(res, 401, {
+                mensagem: "Usuário não autenticado."
+            });
             return;
         }
 
-        res.writeHead(status, {
-            "Content-Type": "application/json; charset=utf-8"
-        });
-
-        res.end(JSON.stringify(dados));
-    };
-
-    try {
-        const url = new URL(req.url, "http://localhost");
-        const partes = url.pathname.split("/");
-        const userId = Number(partes[3]);
-
-        if (!Number.isInteger(userId) || userId <= 0) {
-            responder(400, {
+        if (
+            !/^\d+$/.test(userIdTexto || "") ||
+            !Number.isSafeInteger(userId) ||
+            userId <= 0
+        ) {
+            responder(res, 400, {
                 mensagem: "ID de usuário inválido."
             });
             return;
         }
 
-        const body = await new Promise((resolve, reject) => {
-            let data = "";
-
-            req.on("data", (chunk) => {
-                data += chunk.toString();
+        if (!(await ehAdmin(atorId))) {
+            responder(res, 403, {
+                mensagem: "Somente um administrador pode atribuir papéis."
             });
+            return;
+        }
 
-            req.on("end", () => {
-                try {
-                    resolve(JSON.parse(data));
-                } catch {
-                    reject(new Error("JSON_INVALIDO"));
-                }
+        const usuario = await userRepository.ler(userId);
+
+        if (!usuario.rows || usuario.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "Usuário não encontrado ou inativo."
             });
+            return;
+        }
 
-            req.on("error", reject);
-        });
+        const body = await lerBodyJson(req);
 
-        if (
-            !body ||
-            typeof body !== "object" ||
-            Array.isArray(body)
-        ) {
-            responder(400, {
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+            responder(res, 400, {
                 mensagem: "Envie um objeto JSON válido."
             });
             return;
@@ -56,55 +91,63 @@ const roleAtribuir = async (req, res) => {
 
         const roleId = body.role_id;
 
-        if (
-            !Number.isInteger(roleId) ||
-            roleId <= 0
-        ) {
-            responder(400, {
+        if (!Number.isSafeInteger(roleId) || roleId <= 0) {
+            responder(res, 400, {
                 mensagem: "Informe um role_id inteiro e válido."
             });
             return;
         }
 
-        const resultado = await roleRepository.atribuir(
-            userId,
-            roleId
-        );
+        const role = await roleRepository.buscarPorId(roleId);
 
-        if (resultado.rows.length === 0) {
-            responder(409, {
-                mensagem: "Esta role já está atribuída a este usuário."
+        if (!role) {
+            responder(res, 404, {
+                mensagem: "Papel não encontrado."
             });
             return;
         }
 
-        responder(200, {
-            mensagem: "Role atribuída com sucesso.",
+        const resultado = await roleRepository.atribuir(userId, roleId);
+
+        if (!resultado.rows || resultado.rows.length === 0) {
+            responder(res, 409, {
+                mensagem: "Este papel já está atribuído a este usuário."
+            });
+            return;
+        }
+
+        responder(res, 200, {
+            mensagem: "Papel atribuído com sucesso.",
             usuario_id: userId,
-            role_id: roleId
+            role_id: roleId,
+            role: role.role
         });
     } catch (erro) {
         if (erro.message === "JSON_INVALIDO") {
-            responder(400, {
+            responder(res, 400, {
                 mensagem: "O corpo da requisição contém um JSON inválido."
             });
             return;
         }
 
-        if (erro.code === "23503") {
-            responder(404, {
-                mensagem: "Usuário ou role não encontrado."
+        if (erro.message === "BODY_MUITO_GRANDE") {
+            responder(res, 413, {
+                mensagem: "O corpo da requisição excede o tamanho permitido."
             });
             return;
         }
 
-        console.error(
-            "[ERRO AO ATRIBUIR ROLE]",
-            erro.message
-        );
+        if (erro.code === "23503") {
+            responder(res, 404, {
+                mensagem: "Usuário ou papel não encontrado."
+            });
+            return;
+        }
 
-        responder(500, {
-            mensagem: "Não foi possível atribuir a role."
+        console.error("[ERRO AO ATRIBUIR PAPEL]", erro);
+
+        responder(res, 500, {
+            mensagem: "Não foi possível atribuir o papel."
         });
     }
 };

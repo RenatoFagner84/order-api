@@ -1,0 +1,2073 @@
+};
+
+const listar = async () => {
+    return await pool.query(`
+        SELECT
+            c.id,
+            c.user_id,
+            c.pedido_id,
+            tm.nome AS tipo_movimentacao,
+            c.subtotal,
+            c.desconto,
+            c.frete,
+            c.acrescimo,
+            c.total,
+            fp.nome AS forma_pagamento,
+            ps.nome AS pagamento_status,
+            c.descricao
+        FROM caixa c
+        LEFT JOIN tipo_movimentacao_caixa tm_id
+            ON tm_id.id = c.tipo_movimentacao_id
+        LEFT JOIN status tm
+            ON tm.id = tm_id.id
+        LEFT JOIN forma_de_pagamento fp_id
+            ON fp_id.id = c.forma_pagamento_id
+        LEFT JOIN status fp
+            ON fp.id = fp_id.id
+        LEFT JOIN pagamentos_status ps_id
+            ON ps_id.id = c.pagamento_status_id
+        LEFT JOIN status ps
+            ON ps.id = ps_id.id
+        ORDER BY c.id DESC
+    `);
+};
+
+const ler = async (id) => {
+    return await pool.query(
+        `
+        SELECT
+            c.id,
+            c.user_id,
+            c.pedido_id,
+            tm.nome AS tipo_movimentacao,
+            c.subtotal,
+            c.desconto,
+            c.frete,
+            c.acrescimo,
+            c.total,
+            fp.nome AS forma_pagamento,
+            ps.nome AS pagamento_status,
+            c.descricao
+        FROM caixa c
+        LEFT JOIN tipo_movimentacao_caixa tm_id
+            ON tm_id.id = c.tipo_movimentacao_id
+        LEFT JOIN status tm
+            ON tm.id = tm_id.id
+        LEFT JOIN forma_de_pagamento fp_id
+            ON fp_id.id = c.forma_pagamento_id
+        LEFT JOIN status fp
+            ON fp.id = fp_id.id
+        LEFT JOIN pagamentos_status ps_id
+            ON ps_id.id = c.pagamento_status_id
+        LEFT JOIN status ps
+            ON ps.id = ps_id.id
+        WHERE c.id = $1
+        `,
+        [id]
+    );
+};
+
+const listarPorUser = async (user_id) => {
+    return await pool.query(
+        `
+        SELECT
+            c.id,
+            c.user_id,
+            c.pedido_id,
+            tm.nome AS tipo_movimentacao,
+            c.subtotal,
+            c.desconto,
+            c.frete,
+            c.acrescimo,
+            c.total,
+            fp.nome AS forma_pagamento,
+            ps.nome AS pagamento_status,
+            c.descricao
+        FROM caixa c
+        LEFT JOIN tipo_movimentacao_caixa tm_id
+            ON tm_id.id = c.tipo_movimentacao_id
+        LEFT JOIN status tm
+            ON tm.id = tm_id.id
+        LEFT JOIN forma_de_pagamento fp_id
+            ON fp_id.id = c.forma_pagamento_id
+        LEFT JOIN status fp
+            ON fp.id = fp_id.id
+        LEFT JOIN pagamentos_status ps_id
+            ON ps_id.id = c.pagamento_status_id
+        LEFT JOIN status ps
+            ON ps.id = ps_id.id
+        WHERE c.user_id = $1
+        ORDER BY c.id DESC
+        `,
+        [user_id]
+    );
+};
+
+const listarPorPedido = async (pedido_id) => {
+    return await pool.query(
+        `
+        SELECT
+            c.id,
+            c.user_id,
+            c.pedido_id,
+            tm.nome AS tipo_movimentacao,
+            c.subtotal,
+            c.desconto,
+            c.frete,
+            c.acrescimo,
+            c.total,
+            fp.nome AS forma_pagamento,
+            ps.nome AS pagamento_status,
+            c.descricao
+        FROM caixa c
+        LEFT JOIN tipo_movimentacao_caixa tm_id
+            ON tm_id.id = c.tipo_movimentacao_id
+        LEFT JOIN status tm
+            ON tm.id = tm_id.id
+        LEFT JOIN forma_de_pagamento fp_id
+            ON fp_id.id = c.forma_pagamento_id
+        LEFT JOIN status fp
+            ON fp.id = fp_id.id
+        LEFT JOIN pagamentos_status ps_id
+            ON ps_id.id = c.pagamento_status_id
+        LEFT JOIN status ps
+            ON ps.id = ps_id.id
+        WHERE c.pedido_id = $1
+        ORDER BY c.id DESC
+        `,
+        [pedido_id]
+    );
+};
+
+const atualizar = async (
+    id,
+    user_id,
+    pedido_id,
+    tipo_movimentacao_id,
+    subtotal,
+    desconto,
+    frete,
+    acrescimo,
+    total,
+    forma_pagamento_id,
+    pagamento_status_id,
+    descricao
+) => {
+    await pool.query(
+        `
+        UPDATE caixa
+        SET
+            user_id = $1,
+            pedido_id = $2,
+            tipo_movimentacao_id = $3,
+            subtotal = $4,
+            desconto = $5,
+            frete = $6,
+            acrescimo = $7,
+            total = $8,
+            forma_pagamento_id = $9,
+            pagamento_status_id = $10,
+            descricao = $11
+        WHERE id = $12
+        `,
+        [
+            user_id || null,
+            pedido_id || null,
+            tipo_movimentacao_id,
+            subtotal || 0,
+            desconto || 0,
+            frete || 0,
+            acrescimo || 0,
+            total || 0,
+            forma_pagamento_id || null,
+            pagamento_status_id || null,
+            descricao || null,
+            id
+        ]
+    );
+
+    return await pool.query(
+        `
+        SELECT
+            c.id,
+            c.user_id,
+            c.pedido_id,
+            tm.nome AS tipo_movimentacao,
+            c.subtotal,
+            c.desconto,
+            c.frete,
+            c.acrescimo,
+            c.total,
+            fp.nome AS forma_pagamento,
+            ps.nome AS pagamento_status,
+            c.descricao
+        FROM caixa c
+        LEFT JOIN tipo_movimentacao_caixa tm_id
+            ON tm_id.id = c.tipo_movimentacao_id
+        LEFT JOIN status tm
+            ON tm.id = tm_id.id
+        LEFT JOIN forma_de_pagamento fp_id
+            ON fp_id.id = c.forma_pagamento_id
+        LEFT JOIN status fp
+            ON fp.id = fp_id.id
+        LEFT JOIN pagamentos_status ps_id
+            ON ps_id.id = c.pagamento_status_id
+        LEFT JOIN status ps
+            ON ps.id = ps_id.id
+        WHERE c.id = $1
+        `,
+        [id]
+    );
+};
+
+const deletar = async (id) => {
+    return await pool.query(
+        `
+        DELETE FROM caixa
+        WHERE id = $1
+        RETURNING *
+        `,
+        [id]
+    );
+};
+
+module.exports = {
+    inserir,
+    listar,
+    ler,
+    listarPorUser,
+    listarPorPedido,
+    atualizar,
+    deletar
+};
+
+
+========== ARQUIVO: src\repositories\cartRepository.js ==========
+
+const pool = require("../db");
+
+const listarTodos = async () => {
+    return await pool.query(`
+        SELECT
+            c.id,
+            c.user_id,
+            c.data_pedido,
+            c.oculto,
+            c.status_id,
+            s.nome AS status,
+            COALESCE(
+                SUM(p.valor * pc.quantidade),
+                0
+            ) AS valor_total
+        FROM carrinho c
+        LEFT JOIN status s
+            ON s.id = c.status_id
+        LEFT JOIN produtos_carrinho pc
+            ON pc.carrinho_id = c.id
+        LEFT JOIN produtos p
+            ON p.id = pc.produto_id
+        GROUP BY
+            c.id,
+            c.user_id,
+            c.data_pedido,
+            c.oculto,
+            c.status_id,
+            s.nome
+        ORDER BY c.id
+    `);
+};
+
+const listarPorUser = async (userId) => {
+    return await pool.query(`
+        SELECT
+            c.id,
+            c.user_id,
+            c.data_pedido,
+            c.oculto,
+            c.status_id,
+            s.nome AS status,
+            COALESCE(
+                SUM(p.valor * pc.quantidade),
+                0
+            ) AS valor_total
+        FROM carrinho c
+        LEFT JOIN status s
+            ON s.id = c.status_id
+        LEFT JOIN produtos_carrinho pc
+            ON pc.carrinho_id = c.id
+        LEFT JOIN produtos p
+            ON p.id = pc.produto_id
+        WHERE c.user_id = $1
+        GROUP BY
+            c.id,
+            c.user_id,
+            c.data_pedido,
+            c.oculto,
+            c.status_id,
+            s.nome
+        ORDER BY c.id
+    `, [userId]);
+};
+
+const consultar = async (id) => {
+    return await pool.query(`
+        SELECT
+            c.id,
+            c.user_id,
+            c.data_pedido,
+            c.oculto,
+            c.status_id,
+            s.nome AS status,
+            COALESCE(
+                SUM(p.valor * pc.quantidade),
+                0
+            ) AS valor_total
+        FROM carrinho c
+        LEFT JOIN status s
+            ON s.id = c.status_id
+        LEFT JOIN produtos_carrinho pc
+            ON pc.carrinho_id = c.id
+        LEFT JOIN produtos p
+            ON p.id = pc.produto_id
+        WHERE c.id = $1
+        GROUP BY
+            c.id,
+            c.user_id,
+            c.data_pedido,
+            c.oculto,
+            c.status_id,
+            s.nome
+    `, [id]);
+};
+
+const consultarItens = async (carrinhoId) => {
+    return await pool.query(`
+        SELECT
+            pc.carrinho_id,
+            pc.produto_id,
+            p.nome,
+            p.valor,
+            pc.quantidade,
+            (p.valor * pc.quantidade) AS subtotal
+        FROM produtos_carrinho pc
+        INNER JOIN produtos p
+            ON p.id = pc.produto_id
+        WHERE pc.carrinho_id = $1
+        ORDER BY pc.produto_id
+    `, [carrinhoId]);
+};
+
+const consultarItem = async (carrinhoId, produtoId) => {
+    return await pool.query(`
+        SELECT
+            pc.carrinho_id,
+            pc.produto_id,
+            pc.quantidade
+        FROM produtos_carrinho pc
+        WHERE pc.carrinho_id = $1
+          AND pc.produto_id = $2
+    `, [carrinhoId, produtoId]);
+};
+
+const criar = async (userId) => {
+    const insercao = await pool.query(`
+        INSERT INTO carrinho (
+            user_id,
+            status_id
+        )
+        VALUES (
+            $1,
+            (
+                SELECT id
+                FROM status
+                WHERE LOWER(nome) = 'aberto'
+                LIMIT 1
+            )
+        )
+        RETURNING id
+    `, [userId]);
+
+    if (insercao.rows.length === 0) {
+        throw new Error(
+            "NÃ£o foi possÃ­vel criar o carrinho. Verifique se o status 'aberto' existe na tabela status."
+        );
+    }
+
+    return await consultar(insercao.rows[0].id);
+};
+
+const atualizar = async (id, statusId) => {
+    if (typeof statusId === "string") {
+        return await pool.query(`
+            UPDATE carrinho
+            SET status_id = (
+                SELECT id
+                FROM status
+                WHERE LOWER(nome) = LOWER($1)
+                LIMIT 1
+            )
+            WHERE id = $2
+            RETURNING *
+        `, [statusId, id]);
+    }
+
+    return await pool.query(`
+        UPDATE carrinho
+        SET status_id = $1
+        WHERE id = $2
+        RETURNING *
+    `, [statusId, id]);
+};
+
+const adicionarProduto = async (
+    carrinhoId,
+    produtoId,
+    quantidade
+) => {
+    return await pool.query(`
+        INSERT INTO produtos_carrinho (
+            carrinho_id,
+            produto_id,
+            quantidade
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT (carrinho_id, produto_id)
+        DO UPDATE SET
+            quantidade =
+                produtos_carrinho.quantidade
+                + EXCLUDED.quantidade
+        RETURNING *
+    `, [carrinhoId, produtoId, quantidade]);
+};
+
+const verificarEstoque = async (produtoId, quantidade) => {
+    return await pool.query(`
+        SELECT
+            id,
+            nome,
+            quantidade
+        FROM produtos
+        WHERE id = $1
+          AND quantidade >= $2
+    `, [produtoId, quantidade]);
+};
+
+const atualizarQuantidade = async (
+    carrinhoId,
+    produtoId,
+    quantidade
+) => {
+    return await pool.query(`
+        UPDATE produtos_carrinho
+        SET quantidade = $1
+        WHERE carrinho_id = $2
+          AND produto_id = $3
+        RETURNING *
+    `, [quantidade, carrinhoId, produtoId]);
+};
+
+const removerProduto = async (carrinhoId, produtoId) => {
+    return await pool.query(`
+        DELETE FROM produtos_carrinho
+        WHERE carrinho_id = $1
+          AND produto_id = $2
+        RETURNING *
+    `, [carrinhoId, produtoId]);
+};
+
+module.exports = {
+    listarTodos,
+    listarPorUser,
+    consultar,
+    consultarItens,
+    consultarItem,
+    criar,
+    atualizar,
+    adicionarProduto,
+    verificarEstoque,
+    atualizarQuantidade,
+    removerProduto
+};
+
+
+========== ARQUIVO: src\repositories\enderecoRepository.js ==========
+
+const pool = require("../db");
+
+const inserir = async (
+    user_id,
+    cep,
+    logradouro,
+    numero,
+    complemento,
+    bairro,
+    cidade,
+    estado
+) => {
+    return await pool.query(
+        `INSERT INTO enderecos
+            (
+                user_id,
+                cep,
+                logradouro,
+                numero,
+                complemento,
+                bairro,
+                cidade,
+                estado
+            )
+         VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+            user_id,
+            cep,
+            logradouro,
+            numero,
+            complemento || null,
+            bairro,
+            cidade,
+            estado
+        ]
+    );
+};
+
+const listarPorUser = async (user_id) => {
+    return await pool.query(
+        `SELECT *
+         FROM enderecos
+         WHERE user_id = $1
+         ORDER BY id`,
+        [user_id]
+    );
+};
+
+const ler = async (id) => {
+    return await pool.query(
+        `SELECT *
+         FROM enderecos
+         WHERE id = $1`,
+        [id]
+    );
+};
+
+const atualizar = async (
+    id,
+    cep,
+    logradouro,
+    numero,
+    complemento,
+    bairro,
+    cidade,
+    estado
+) => {
+    return await pool.query(
+        `UPDATE enderecos
+         SET cep = $1,
+             logradouro = $2,
+             numero = $3,
+             complemento = $4,
+             bairro = $5,
+             cidade = $6,
+             estado = $7
+         WHERE id = $8
+         RETURNING *`,
+        [
+            cep,
+            logradouro,
+            numero,
+            complemento || null,
+            bairro,
+            cidade,
+            estado,
+            id
+        ]
+    );
+};
+
+const deletar = async (id) => {
+    return await pool.query(
+        `DELETE FROM enderecos
+         WHERE id = $1
+         RETURNING *`,
+        [id]
+    );
+};
+
+module.exports = {
+    inserir,
+    listarPorUser,
+    ler,
+    atualizar,
+    deletar
+};
+
+
+========== ARQUIVO: src\repositories\logRepository.js ==========
+
+const pool = require("../db");
+
+const inserir = async (
+    metodo,
+    rota,
+    status_code,
+    mensagem,
+    ip,
+    user_agent,
+    user_id = null
+) => {
+    return await pool.query(
+        `INSERT INTO logs (
+            metodo,
+            rota,
+            status_code,
+            mensagem,
+            ip,
+            user_agent,
+            user_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING *`,
+        [
+            metodo,
+            rota,
+            status_code ?? null,
+            mensagem ?? null,
+            ip ?? null,
+            user_agent ?? null,
+            user_id ?? null
+        ]
+    );
+};
+
+const listar = async (limite = 100, offset = 0) => {
+    return await pool.query(
+        `SELECT
+            id,
+            metodo,
+            rota,
+            status_code,
+            mensagem,
+            ip,
+            user_agent,
+            user_id,
+            data_criacao
+        FROM logs
+        ORDER BY data_criacao DESC, id DESC
+        LIMIT $1 OFFSET $2`,
+        [limite, offset]
+    );
+};
+
+const ler = async (id) => {
+    return await pool.query(
+        `SELECT
+            id,
+            metodo,
+            rota,
+            status_code,
+            mensagem,
+            ip,
+            user_agent,
+            user_id,
+            data_criacao
+        FROM logs
+        WHERE id = $1`,
+        [id]
+    );
+};
+
+const contar = async () => {
+    return await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM logs`
+    );
+};
+
+module.exports = {
+    inserir,
+    listar,
+    ler,
+    contar
+};
+
+
+
+========== ARQUIVO: src\repositories\pedidosRepository.js ==========
+
+const pool = require("../db");
+
+const consultar = async (id) => {
+    return await pool.query(`
+        SELECT
+            p.id,
+            p.user_id,
+            p.data_pedido,
+            p.status_id,
+            s.nome AS status,
+            p.oculto
+        FROM pedidos p
+        LEFT JOIN status s
+            ON s.id = p.status_id
+        WHERE p.id = $1
+    `, [id]);
+};
+
+const criar = async (user_id) => {
+    return await pool.query(`
+        INSERT INTO pedidos (user_id)
+        VALUES ($1)
+        RETURNING *
+    `, [user_id]);
+};
+
+const consultarProdutosCarrinho = async (carrinho_id) => {
+    return await pool.query(`
+        SELECT
+            pc.carrinho_id,
+            pc.produto_id,
+            pc.quantidade,
+            p.valor
+        FROM produtos_carrinho pc
+        INNER JOIN produtos p
+            ON p.id = pc.produto_id
+        WHERE pc.carrinho_id = $1
+        ORDER BY pc.produto_id
+    `, [carrinho_id]);
+};
+
+const verificarEstoqueCarrinho = async (carrinho_id) => {
+    return await pool.query(`
+        SELECT
+            pc.produto_id,
+            p.nome,
+            pc.quantidade AS quantidade_solicitada,
+            p.quantidade AS quantidade_estoque
+        FROM produtos_carrinho pc
+        INNER JOIN produtos p
+            ON p.id = pc.produto_id
+        WHERE pc.carrinho_id = $1
+          AND pc.quantidade > p.quantidade
+        ORDER BY pc.produto_id
+    `, [carrinho_id]);
+};
+
+const inserirProdutoPedido = async (
+    pedido_id,
+    produto_id,
+    quantidade,
+    valor_unitario
+) => {
+    return await pool.query(`
+        INSERT INTO produtos_pedido (
+            pedido_id,
+            produto_id,
+            quantidade,
+            valor_unitario
+        )
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+    `, [pedido_id, produto_id, quantidade, valor_unitario]);
+};
+
+const baixarEstoque = async (produto_id, quantidade) => {
+    return await pool.query(`
+        UPDATE produtos
+        SET quantidade = quantidade - $1
+        WHERE id = $2
+          AND quantidade >= $1
+        RETURNING id, nome, quantidade
+    `, [quantidade, produto_id]);
+};
+
+const atualizar = async (id, status_id) => {
+    return await pool.query(`
+        UPDATE pedidos
+        SET status_id = $1
+        WHERE id = $2
+          AND oculto = false
+        RETURNING *
+    `, [status_id, id]);
+};
+
+const cancelar = async (id, userId) => {
+    return await pool.query(`
+        UPDATE pedidos
+        SET status_id = 204
+        WHERE id = $1
+          AND user_id = $2
+          AND oculto = false
+          AND status_id = 200
+        RETURNING *
+    `, [id, userId]);
+};
+
+const lerHistoricoStatus = async (id) => {
+    return await pool.query(`
+        SELECT
+            h.id,
+            h.pedido_id,
+            h.status_anterior_id,
+            sa.nome AS status_anterior,
+            h.status_novo_id,
+            sn.nome AS status_novo,
+            h.data_alteracao
+        FROM pedidos_status_historico h
+        LEFT JOIN status sa
+            ON sa.id = h.status_anterior_id
+        LEFT JOIN status sn
+            ON sn.id = h.status_novo_id
+        WHERE h.pedido_id = $1
+        ORDER BY h.data_alteracao ASC
+    `, [id]);
+};
+
+module.exports = {
+    consultar,
+    criar,
+    atualizar,
+    cancelar,
+    consultarProdutosCarrinho,
+    verificarEstoqueCarrinho,
+    inserirProdutoPedido,
+    baixarEstoque,
+    lerHistoricoStatus
+};
+
+
+
+========== ARQUIVO: src\repositories\permissionRepository.js ==========
+
+const pool = require("../db");
+
+// Busca uma permissÃ£o especÃ­fica pela rota e pelo mÃ©todo HTTP
+async function buscarPermissaoPorRotaEMetodo(url, metodo) {
+    const sql = `
+        SELECT id, url, metodo
+        FROM permissions
+        WHERE url = $1
+          AND UPPER(metodo) = UPPER($2)
+        LIMIT 1
+    `;
+
+    const resultado = await pool.query(sql, [url, metodo]);
+
+    return resultado.rows[0] || null;
+}
+
+// Verifica se o usuÃ¡rio tem permissÃ£o para acessar uma rota
+async function usuarioTemPermissao(userId, url, metodo) {
+    const sql = `
+        SELECT EXISTS (
+            SELECT 1
+            FROM users u
+            INNER JOIN users_roles ur
+                ON ur.user_id = u.id
+            INNER JOIN roles_permissions rp
+                ON rp.role_id = ur.role_id
+            INNER JOIN permissions p
+                ON p.id = rp.permission_id
+            WHERE u.id = $1
+              AND u.ativo = TRUE
+              AND p.url = $2
+              AND UPPER(p.metodo) = UPPER($3)
+        ) AS permitido
+    `;
+
+    const resultado = await pool.query(sql, [
+        userId,
+        url,
+        metodo
+    ]);
+
+    return resultado.rows[0]?.permitido === true;
+}
+
+// Busca todas as permissÃµes associadas Ã s roles do usuÃ¡rio
+async function lerPorUser(userId) {
+    const sql = `
+        SELECT DISTINCT
+            p.id,
+            p.url,
+            p.metodo
+        FROM users u
+        INNER JOIN users_roles ur
+            ON ur.user_id = u.id
+        INNER JOIN roles_permissions rp
+            ON rp.role_id = ur.role_id
+        INNER JOIN permissions p
+            ON p.id = rp.permission_id
+        WHERE u.id = $1
+          AND u.ativo = TRUE
+        ORDER BY p.id
+    `;
+
+    return await pool.query(sql, [userId]);
+}
+
+module.exports = {
+    buscarPermissaoPorRotaEMetodo,
+    usuarioTemPermissao,
+    lerPorUser
+};
+
+
+
+========== ARQUIVO: src\repositories\produtoRepository.js ==========
+
+const pool = require("../db");
+
+const ler = async (id) => {
+    return await pool.query(
+        `SELECT
+            p.id,
+            p.nome,
+            p.quantidade,
+            p.valor,
+            s.nome AS status
+         FROM produtos p
+         LEFT JOIN status s
+            ON s.id = p.status_id
+         WHERE p.id = $1`,
+        [id]
+    );
+};
+
+const lerTudo = async () => {
+    return await pool.query(
+        `SELECT
+            p.id,
+            p.nome,
+            p.quantidade,
+            p.valor,
+            s.nome AS status
+         FROM produtos p
+         LEFT JOIN status s
+            ON s.id = p.status_id`
+    );
+};
+
+const inserir = async (nome) => {
+    return await pool.query(
+        "SELECT * FROM produtos WHERE nome = $1",
+        [nome]
+    );
+};
+
+const inserirProduto = async (nome, quantidade, valor) => {
+    return await pool.query(
+        `INSERT INTO produtos
+        (nome, quantidade, valor)
+        VALUES ($1, $2, $3)
+        RETURNING *`,
+        [nome, quantidade, valor]
+    );
+};
+
+const atualizar = async (id, nome, quantidade, valor) => {
+    return await pool.query(
+        `UPDATE produtos
+         SET nome = $1,
+             quantidade = $2,
+             valor = $3
+         WHERE id = $4
+         RETURNING *`,
+        [
+            nome,
+            quantidade,
+            valor,
+            id
+        ]
+    );
+};
+
+const buscarPorNome = async (nome) => {
+    const termos = nome
+        .trim()
+        .split(/\s+/)
+        .map(termo => `${termo}:*`)
+        .join(' & ');
+
+    return await pool.query(
+        `
+        SELECT *,
+               ts_rank(nome_search, to_tsquery('portuguese', $1))
+                   AS relevancia
+        FROM produtos
+        WHERE nome_search @@ to_tsquery('portuguese', $1)
+        ORDER BY relevancia DESC
+        `,
+        [termos]
+    );
+};
+
+const deletar = async (id) => {
+    return await pool.query(
+        "DELETE FROM produtos WHERE id = $1 RETURNING *",
+        [id]
+    );
+};
+
+module.exports = {
+    ler,
+    lerTudo,
+    inserir,
+    inserirProduto,
+    atualizar,
+    buscarPorNome,
+    deletar
+};
+
+
+========== ARQUIVO: src\repositories\produtosPedidoRepository.js ==========
+
+const pool = require("../db");
+
+const lerTudo = async () => {
+
+    const result = await pool.query(`
+        SELECT *
+        FROM produtos_pedido
+        ORDER BY pedido_id DESC, produto_id DESC
+    `);
+
+    return result;
+};
+
+const inserir = async (
+    pedido_id,
+    produto_id,
+    quantidade,
+    valor_unitario
+) => {
+
+    const result = await pool.query(`
+        INSERT INTO produtos_pedido
+        (
+            pedido_id,
+            produto_id,
+            quantidade,
+            valor_unitario
+        )
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+    `, [
+        pedido_id,
+        produto_id,
+        quantidade,
+        valor_unitario
+    ]);
+
+    return result;
+};
+const atualizar = async (
+    pedido_id,
+    produto_id,
+    quantidade,
+    valor_unitario
+) => {
+
+    const result = await pool.query(`
+        UPDATE produtos_pedido
+        SET
+            quantidade = $1,
+            valor_unitario = $2
+        WHERE pedido_id = $3
+        AND produto_id = $4
+        RETURNING *
+    `, [
+        quantidade,
+        valor_unitario,
+        pedido_id,
+        produto_id
+    ]);
+
+    return result;
+};
+
+const deletar = async (
+    pedido_id,
+    produto_id
+) => {
+
+    const result = await pool.query(`
+        DELETE FROM produtos_pedido
+        WHERE pedido_id = $1
+        AND produto_id = $2
+        RETURNING *
+    `, [
+        pedido_id,
+        produto_id
+    ]);
+
+    return result;
+};
+
+
+module.exports = {
+    lerTudo,
+    inserir,
+    atualizar,
+    deletar
+};
+
+
+========== ARQUIVO: src\repositories\roleRepository.js ==========
+
+const pool = require("../db");
+
+const lerTudo = async () => {
+    return await pool.query(`
+        SELECT id, role
+        FROM roles
+        ORDER BY id
+    `);
+};
+
+const buscarPorId = async (roleId) => {
+    const resultado = await pool.query(
+        `SELECT id, role
+         FROM roles
+         WHERE id = $1
+         LIMIT 1`,
+        [roleId]
+    );
+
+    return resultado.rows[0] || null;
+};
+
+const lerPorUser = async (userId) => {
+    return await pool.query(
+        `SELECT r.id, r.role
+         FROM roles r
+         INNER JOIN users_roles ur
+            ON ur.role_id = r.id
+         INNER JOIN users u
+            ON u.id = ur.user_id
+         WHERE ur.user_id = $1
+           AND u.ativo = TRUE
+         ORDER BY r.id`,
+        [userId]
+    );
+};
+
+const atribuir = async (userId, roleId) => {
+    return await pool.query(
+        `INSERT INTO users_roles (user_id, role_id)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, role_id)
+         DO NOTHING
+         RETURNING user_id, role_id`,
+        [userId, roleId]
+    );
+};
+
+const remover = async (userId, roleId) => {
+    return await pool.query(
+        `DELETE FROM users_roles
+         WHERE user_id = $1
+           AND role_id = $2
+         RETURNING user_id, role_id`,
+        [userId, roleId]
+    );
+};
+
+// Protege o Ãºltimo administrador ativo.
+// Identifica o papel pelo nome, sem presumir que seu ID seja 1.
+const verificarUltimoAdminAtivo = async (userId, roleId) => {
+    const resultado = await pool.query(
+        `SELECT
+            EXISTS (
+                SELECT 1
+                FROM users_roles ur
+                INNER JOIN roles r
+                    ON r.id = ur.role_id
+                INNER JOIN users u
+                    ON u.id = ur.user_id
+                WHERE ur.user_id = $1
+                  AND ur.role_id = $2
+                  AND LOWER(TRIM(r.role)) = 'admin'
+                  AND u.ativo = TRUE
+            ) AS usuario_e_admin_ativo,
+            (
+                SELECT COUNT(DISTINCT u.id)::INTEGER
+                FROM users_roles ur
+                INNER JOIN roles r
+                    ON r.id = ur.role_id
+                INNER JOIN users u
+                    ON u.id = ur.user_id
+                WHERE LOWER(TRIM(r.role)) = 'admin'
+                  AND u.ativo = TRUE
+            ) AS total_admins_ativos`,
+        [userId, roleId]
+    );
+
+    return resultado.rows[0] || {
+        usuario_e_admin_ativo: false,
+        total_admins_ativos: 0
+    };
+};
+
+module.exports = {
+    lerTudo,
+    buscarPorId,
+    lerPorUser,
+    atribuir,
+    remover,
+    verificarUltimoAdminAtivo
+};
+
+
+========== ARQUIVO: src\repositories\userRepository.js ==========
+
+const pool = require("../db");
+
+const ler = async (id) => {
+    return await pool.query(
+        `SELECT
+            id,
+            nome,
+            email,
+            telefone,
+            status_id,
+            ativo
+         FROM users
+         WHERE id = $1
+           AND ativo = TRUE`,
+        [id]
+    );
+};
+
+const lerTudo = async () => {
+    return await pool.query(
+        `SELECT
+            id,
+            nome,
+            email,
+            telefone,
+            status_id,
+            ativo
+         FROM users
+         WHERE ativo = TRUE
+         ORDER BY id`
+    );
+};
+
+const buscarPorNome = async (nome) => {
+    const palavras = String(nome || "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+
+    if (palavras.length === 0) {
+        return {
+            rows: [],
+            rowCount: 0
+        };
+    }
+
+    const busca = palavras
+        .map((palavra) =>
+            `${palavra.replace(/[^\p{L}\p{N}_]/gu, "")}:*`
+        )
+        .filter((palavra) => palavra !== ":*")
+        .join(" & ");
+
+    if (!busca) {
+        return {
+            rows: [],
+            rowCount: 0
+        };
+    }
+
+    return await pool.query(
+        `SELECT
+            id,
+            nome,
+            email,
+            telefone,
+            status_id,
+            ativo
+         FROM users
+         WHERE ativo = TRUE
+           AND to_tsvector('simple', nome)
+               @@ to_tsquery('simple', $1)
+         ORDER BY nome`,
+        [busca]
+    );
+};
+
+const verificarEmail = async (email) => {
+    return await pool.query(
+        `SELECT
+            id,
+            nome,
+            email,
+            telefone,
+            status_id,
+            ativo
+         FROM users
+         WHERE LOWER(email) = LOWER($1)
+           AND ativo = TRUE`,
+        [email]
+    );
+};
+
+// Usado no login: inclui usuÃ¡rios inativos para que
+// o controlador possa rejeitar a autenticaÃ§Ã£o.
+const buscarPorEmailParaLogin = async (email) => {
+    return await pool.query(
+        `SELECT
+            id,
+            nome,
+            email,
+            senha_hash,
+            ativo
+         FROM users
+         WHERE LOWER(email) = LOWER($1)`,
+        [email]
+    );
+};
+
+const inserirUsuario = async (
+    nome,
+    email,
+    telefone,
+    senhaHash
+) => {
+    return await pool.query(
+        `INSERT INTO users (
+            nome,
+            email,
+            telefone,
+            senha_hash,
+            ativo
+        )
+        VALUES ($1, $2, $3, $4, TRUE)
+        RETURNING
+            id,
+            nome,
+            email,
+            telefone,
+            status_id,
+            ativo`,
+        [nome, email, telefone || null, senhaHash]
+    );
+};
+
+const atualizar = async (
+    id,
+    nome,
+    email,
+    telefone,
+    statusId
+) => {
+    const resultado = await pool.query(
+        `UPDATE users
+         SET
+            nome = $1,
+            email = $2,
+            telefone = $3,
+            status_id = $4
+         WHERE id = $5
+           AND ativo = TRUE
+         RETURNING
+            id,
+            nome,
+            email,
+            telefone,
+            status_id,
+            ativo`,
+        [nome, email, telefone || null, statusId, id]
+    );
+
+    return resultado;
+};
+
+const deletar = async (id) => {
+    const resultado = await pool.query(
+        `UPDATE users
+         SET ativo = FALSE
+         WHERE id = $1
+           AND ativo = TRUE
+         RETURNING
+            id,
+            nome,
+            email,
+            telefone,
+            status_id,
+            ativo`,
+        [id]
+    );
+
+    if (resultado.rowCount === 0) {
+        return {
+            sucesso: false,
+            mensagem:
+                "UsuÃ¡rio nÃ£o encontrado ou jÃ¡ estÃ¡ desativado."
+        };
+    }
+
+    return {
+        sucesso: true,
+        mensagem: "UsuÃ¡rio desativado com sucesso.",
+        user: resultado.rows[0]
+    };
+};
+
+const lerHistoricoStatus = async (id) => {
+    return await pool.query(
+        `SELECT
+            h.id,
+            h.user_id,
+            h.status_anterior_id,
+            sa.nome AS status_anterior,
+            h.status_novo_id,
+            sn.nome AS status_novo,
+            h.data_alteracao
+         FROM users_status_historico h
+         LEFT JOIN status sa
+            ON sa.id = h.status_anterior_id
+         LEFT JOIN status sn
+            ON sn.id = h.status_novo_id
+         WHERE h.user_id = $1
+         ORDER BY h.data_alteracao ASC, h.id ASC`,
+        [id]
+    );
+};
+
+module.exports = {
+    ler,
+    lerTudo,
+    buscarPorNome,
+    verificarEmail,
+    buscarPorEmailParaLogin,
+    inserirUsuario,
+    atualizar,
+    deletar,
+    lerHistoricoStatus
+};
+
+
+========== ARQUIVO: src\routes\caixaRoutes.js ==========
+
+const caixa = require("../controllers/caixa");
+
+const caixaRoutes = async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const partes = url.pathname.split("/");
+    const acao = partes[2];
+
+    if (req.method === "GET" && acao === "listar") {
+        await caixa.caixaListar(req, res);
+        return;
+    }
+
+    if (req.method === "GET" && acao === "ler" && partes[3]) {
+        await caixa.caixaLer(req, res);
+        return;
+    }
+
+    if (req.method === "GET" && acao === "user" && partes[3]) {
+        await caixa.caixaListarPorUser(req, res);
+        return;
+    }
+
+    if (req.method === "GET" && acao === "pedido" && partes[3]) {
+        await caixa.caixaListarPorPedido(req, res);
+        return;
+    }
+
+    if (req.method === "POST" && acao === "inserir") {
+        await caixa.caixaInserir(req, res);
+        return;
+    }
+
+    if (req.method === "PUT" && acao === "atualizar" && partes[3]) {
+        await caixa.caixaAtualizar(req, res);
+        return;
+    }
+
+    if (req.method === "DELETE" && acao === "deletar" && partes[3]) {
+        await caixa.caixaDeletar(req, res);
+        return;
+    }
+
+    res.writeHead(404, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+        mensagem: "Rota do caixa nÃ£o encontrada"
+    }));
+};
+
+module.exports = caixaRoutes;
+
+
+========== ARQUIVO: src\routes\cartRoutes.js ==========
+
+const cart = require("../controllers/cart");
+
+const cartRoutes = async (req, res) => {
+
+    if (
+        req.method === "POST" &&
+        req.url === "/cart"
+    ) {
+        await cart.cartCriar(req, res);
+        return;
+    }
+
+    if (
+        req.method === "GET" &&
+        req.url === "/cart"
+    ) {
+        await cart.cartListarTodos(req, res);
+        return;
+    }
+
+    if (
+        req.method === "GET" &&
+        /^\/cart\/\d+$/.test(req.url)
+    ) {
+        await cart.cartConsultar(req, res);
+        return;
+    }
+
+    if (
+        req.method === "POST" &&
+        /^\/cart\/\d+\/produtos$/.test(req.url)
+    ) {
+        await cart.cartAdicionarProduto(req, res);
+        return;
+    }
+
+    if (
+        req.method === "PUT" &&
+        /^\/cart\/\d+\/produtos\/\d+$/.test(req.url)
+    ) {
+        await cart.cartAtualizarQuantidade(req, res);
+        return;
+    }
+
+    if (
+        req.method === "DELETE" &&
+        /^\/cart\/\d+\/produtos\/\d+$/.test(req.url)
+    ) {
+        await cart.cartRemoverProduto(req, res);
+        return;
+    }
+
+    res.writeHead(404, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+        mensagem: "Rota nÃ£o encontrada"
+    }));
+};
+
+module.exports = cartRoutes;
+
+
+========== ARQUIVO: src\routes\enderecosRoutes.js ==========
+
+const endereco = require("../controllers/enderecos");
+
+const enderecosRoutes = async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const partes = url.pathname.split("/");
+    const acao = partes[2];
+
+    if (req.method === "GET" && acao === "user" && partes[3]) {
+        await endereco.enderecoListarPorUser(req, res);
+        return;
+    }
+
+    if (req.method === "GET" && acao === "ler" && partes[3]) {
+        await endereco.enderecoLer(req, res);
+        return;
+    }
+
+    if (req.method === "POST" && acao === "inserir") {
+        await endereco.enderecoInserir(req, res);
+        return;
+    }
+
+    if (req.method === "PUT" && acao === "atualizar" && partes[3]) {
+        await endereco.enderecoAtualizar(req, res);
+        return;
+    }
+
+    if (req.method === "DELETE" && acao === "deletar" && partes[3]) {
+        await endereco.enderecoDeletar(req, res);
+        return;
+    }
+
+    res.writeHead(404, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+        mensagem: "Rota de endereÃ§os nÃ£o encontrada"
+    }));
+};
+
+module.exports = enderecosRoutes;
+
+
+========== ARQUIVO: src\routes\index.js ==========
+
+const usersRoutes = require("./usersRoutes");
+const produtosRoutes = require("./produtosRoutes");
+const pedidosRoutes = require("./pedidosRoutes");
+const cartRoutes = require("./cartRoutes");
+const produtosPedidoRoutes = require("./produtosPedidoRoutes");
+const caixaRoutes = require("./caixaRoutes");
+const enderecosRoutes = require("./enderecosRoutes");
+const rolesRoutes = require("./rolesRoutes");
+const logsRoutes = require("./logsRoutes");
+
+module.exports = {
+    usersRoutes,
+    produtosRoutes,
+    pedidosRoutes,
+    cartRoutes,
+    produtosPedidoRoutes,
+    caixaRoutes,
+    enderecosRoutes,
+    rolesRoutes,
+    logsRoutes
+};
+
+
+========== ARQUIVO: src\routes\logsRoutes.js ==========
+
+
+const logs = require("../controllers/logs");
+
+const logsRoutes = async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const partes = url.pathname.split("/");
+
+    if (req.method === "GET" && url.pathname === "/logs") {
+        req.query = Object.fromEntries(url.searchParams.entries());
+
+        await logs.logsListar(req, res);
+        return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/logs/inserir") {
+        let body = "";
+
+        req.on("data", (chunk) => {
+            body += chunk;
+        });
+
+        await new Promise((resolve) => {
+            req.on("end", resolve);
+        });
+
+        req.body = JSON.parse(body || "{}");
+
+        await logs.logsInserir(req, res);
+        return;
+    }
+
+    if (
+        req.method === "GET" &&
+        partes[1] === "logs" &&
+        partes[2] === "ler" &&
+        partes[3]
+    ) {
+        req.params = {
+            id: partes[3]
+        };
+
+        await logs.logsLer(req, res);
+        return;
+    }
+
+    res.writeHead(404, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+        mensagem: "Rota de logs nÃ£o encontrada"
+    }));
+};
+
+module.exports = logsRoutes;
+
+
+
+========== ARQUIVO: src\routes\pedidosRoutes.js ==========
+
+const pedidos = require("../controllers/pedidos");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const pedidosRoutes = async (req, res) => {
+    const url = new URL(req.url, "http://localhost:3000");
+    const caminho = url.pathname;
+    const partes = caminho.split("/");
+    const id = Number(partes[2]);
+
+    // Finalizar carrinho e criar pedido.
+    if (
+        req.method === "POST" &&
+        /^\/pedido\/\d+\/finalizar$/.test(caminho)
+    ) {
+        await pedidos.pedidosFinalizar(req, res);
+        return;
+    }
+
+    // Criar pedido usando o usuÃ¡rio autenticado.
+    if (req.method === "POST" && caminho === "/pedido") {
+        await pedidos.pedidosCriar(req, res);
+        return;
+    }
+
+    // Consultar histÃ³rico de status.
+    if (
+        req.method === "GET" &&
+        partes.length === 4 &&
+        partes[3] === "historico-status" &&
+        Number.isInteger(id) &&
+        id > 0
+    ) {
+        await pedidos.pedidosHistoricoStatus(req, res);
+        return;
+    }
+
+    // Consultar pedido.
+    if (
+        req.method === "GET" &&
+        partes.length === 3 &&
+        Number.isInteger(id) &&
+        id > 0
+    ) {
+        await pedidos.pedidosConsultar(req, res);
+        return;
+    }
+
+    // Cancelar pedido do usuÃ¡rio autenticado.
+    if (
+        req.method === "PATCH" &&
+        partes.length === 4 &&
+        partes[3] === "cancelar" &&
+        Number.isInteger(id) &&
+        id > 0
+    ) {
+        await pedidos.pedidosCancelar(req, res);
+        return;
+    }
+
+    // Atualizar status.
+    if (
+        req.method === "PATCH" &&
+        partes.length === 3 &&
+        Number.isInteger(id) &&
+        id > 0
+    ) {
+        await pedidos.pedidosAtualizar(req, res);
+        return;
+    }
+
+    // Fechamento ainda nÃ£o estÃ¡ implementado com seguranÃ§a.
+    if (
+        req.method === "PATCH" &&
+        partes.length === 4 &&
+        partes[3] === "fechar" &&
+        Number.isInteger(id) &&
+        id > 0
+    ) {
+        responder(res, 501, {
+            mensagem: "Fechamento ainda nÃ£o implementado."
+        });
+        return;
+    }
+
+    responder(res, 404, {
+        mensagem: "Rota de pedido nÃ£o encontrada."
+    });
+};
+
+module.exports = pedidosRoutes;
+
+
+
+========== ARQUIVO: src\routes\produtosPedidoRoutes.js ==========
+
+const produtosPedido = require("../controllers/produtosPedidos");
+
+const produtosPedidoRoutes = async (req, res) => {
+
+    // GET - consultar
+    if (
+        req.method === "GET" &&
+        req.url === "/produtos-pedido"
+    ) {
+        await produtosPedido.produtosPedidoLer(req, res);
+        return;
+    }
+
+    // POST - inserir
+    if (
+        req.method === "POST" &&
+        req.url === "/produtos-pedido"
+    ) {
+        await produtosPedido.produtosPedidoInserir(req, res);
+        return;
+    }
+
+    // PUT - atualizar
+    if (
+        req.method === "PUT" &&
+        /^\/produtos-pedido\/\d+\/\d+$/.test(req.url)
+    ) {
+        await produtosPedido.produtosPedidoAtualizar(req, res);
+        return;
+    }
+
+    // DELETE - deletar
+    if (
+        req.method === "DELETE" &&
+        /^\/produtos-pedido\/\d+\/\d+$/.test(req.url)
+    ) {
+        await produtosPedido.produtosPedidoDeletar(req, res);
+        return;
+    }
+
+    res.writeHead(404, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+        mensagem: "Rota nÃ£o encontrada"
+    }));
+};
+
+module.exports = produtosPedidoRoutes;
+
+
+========== ARQUIVO: src\routes\produtosRoutes.js ==========
+
+const produto = require("../controllers/produtos");
+
+const produtosRoutes = async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const partes = url.pathname.split("/");
+    const acao = partes[2];
+
+    if (req.method === "GET" && acao === "ler" && partes[3]) {
+        await produto.produtosLerId(req, res);
+        return;
+    }
+
+    if (req.method === "GET" && acao === "ler") {
+        await produto.produtosLer(req, res);
+        return;
+    }
+
+    if (req.method === "GET" && acao === "buscar") {
+        await produto.produtosBuscar(req, res);
+        return;
+    }
+
+    if (req.method === "POST" && acao === "inserir") {
+        await produto.produtosInserir(req, res);
+        return;
+    }
+
+    if (req.method === "PUT" && acao === "atualizar") {
+        req.id = partes[3];
+        await produto.produtosAtualizar(req, res);
+        return;
+    }
+
+    if (req.method === "DELETE" && acao === "deletar") {
+        req.id = partes[3];
+        await produto.produtosDeletar(req, res);
+        return;
+    }
+
+    res.writeHead(404, {
+        "Content-Type": "application/json"
+    });
+
+    res.end(JSON.stringify({
+        mensagem: "Rota de produtos nÃ£o encontrada"
+    }));
+};
+
+module.exports = produtosRoutes;
+
+
+========== ARQUIVO: src\routes\rolesRoutes.js ==========
+
+const roles = require("../controllers/roles");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const rolesRoutes = async (req, res) => {
+    const pathname = new URL(
+        req.url,
+        "http://localhost"
+    ).pathname;
+
+    if (req.method === "GET" && pathname === "/roles/ler") {
+        await roles.roleLer(req, res);
+        return;
+    }
+
+    if (
+        req.method === "GET" &&
+        /^\/roles\/user\/\d+$/.test(pathname)
+    ) {
+        await roles.rolesPorUser(req, res);
+        return;
+    }
+
+    if (
+        req.method === "POST" &&
+        /^\/roles\/user\/\d+$/.test(pathname)
+    ) {
+        await roles.roleAtribuir(req, res);
+        return;
+    }
+
+    if (
+        req.method === "DELETE" &&
+        /^\/roles\/user\/\d+\/\d+$/.test(pathname)
+    ) {
+        await roles.roleRemover(req, res);
+        return;
+    }
+
+    responder(res, 404, {
+        mensagem: "Rota de papÃ©is nÃ£o encontrada."
+    });
+};
+
+module.exports = rolesRoutes;
+
+
+========== ARQUIVO: src\routes\usersRoutes.js ==========
+
+
+const user = require("../controllers/users");
+
+const responder = (res, status, mensagem) => {
+    if (res.writableEnded) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify({ mensagem }));
+};
+
+const usersRoutes = async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const caminho = url.pathname;
+    const partes = caminho.split("/");
+    const acao = partes[2];
+
+    // Login
+    if (req.method === "POST" && caminho === "/users/login") {
+        await user.usersLogin(req, res);
+        return;
+    }
+
+    // Cadastro pÃºblico de cliente
+    if (req.method === "POST" && caminho === "/users/inserir") {
+        await user.usersInserir(req, res);
+        return;
+    }
+
+    // Listar usuÃ¡rios
+    if (req.method === "GET" && caminho === "/users/ler") {
+        await user.usersLer(req, res);
+        return;
+    }
+
+    // Consultar usuÃ¡rio por ID
+    if (
+        req.method === "GET" &&
+        /^\/users\/ler\/\d+$/.test(caminho)
+    ) {
+        await user.usersLerId(req, res);
+        return;
+    }
+
+    // Buscar usuÃ¡rios por nome
+    if (req.method === "GET" && caminho === "/users/buscar") {
+        await user.usersBuscar(req, res);
+        return;
+    }
+
+    // Consultar histÃ³rico de status de um usuÃ¡rio especÃ­fico
+    if (
+        req.method === "GET" &&
+        /^\/users\/historico-status\/\d+$/.test(caminho)
+    ) {
+        await user.usersHistoricoStatus(req, res);
+        return;
+    }
+
+    // Atualizar usuÃ¡rio por ID
+    if (
+        req.method === "PUT" &&
+        /^\/users\/atualizar\/\d+$/.test(caminho)
+    ) {
+        await user.usersAtualizar(req, res);
+        return;
+    }
+
+    // Desativar usuÃ¡rio por ID
+    if (
+        req.method === "DELETE" &&
+        /^\/users\/deletar\/\d+$/.test(caminho)
+    ) {
+        await user.usersDeletar(req, res);
+        return;
+    }
+
+    // Identifica rotas antigas ou caminhos invÃ¡lidos
+    if (
+        caminho === "/users/historico-status" ||
+        caminho === "/users/atualizar" ||
+        caminho === "/users/deletar" ||
+        caminho === "/users/inserir-interno"
+    ) {
+        responder(
+            res,
+            404,
+            "Esta rota nÃ£o existe. Confira o caminho e informe o ID quando necessÃ¡rio."
+        );
+        return;
+    }
+
+    responder(res, 404, "Rota de usuÃ¡rios nÃ£o encontrada.");
+};
+
+module.exports = usersRoutes;
+

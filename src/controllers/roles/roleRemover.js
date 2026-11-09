@@ -1,74 +1,128 @@
-
 const roleRepository = require("../../repositories/roleRepository");
 
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
+
+const ehAdmin = async (userId) => {
+    const resultado = await roleRepository.lerPorUser(userId);
+    const roles = Array.isArray(resultado.rows)
+        ? resultado.rows
+        : [];
+
+    return roles.some(
+        (item) =>
+            String(item.role || "").trim().toLowerCase() === "admin"
+    );
+};
+
 const roleRemover = async (req, res) => {
-    const responder = (status, dados) => {
-        if (res.writableEnded) {
+    try {
+        const partes = new URL(
+            req.url,
+            "http://localhost"
+        ).pathname.split("/");
+
+        const userIdTexto = partes[3];
+        const roleIdTexto = partes[4];
+        const userId = Number(userIdTexto);
+        const roleId = Number(roleIdTexto);
+        const atorId = Number(req.usuario?.id);
+
+        if (!Number.isSafeInteger(atorId) || atorId <= 0) {
+            responder(res, 401, {
+                mensagem: "Usuário não autenticado."
+            });
             return;
         }
 
-        res.writeHead(status, {
-            "Content-Type": "application/json; charset=utf-8"
-        });
-
-        res.end(JSON.stringify(dados));
-    };
-
-    try {
-        const url = new URL(req.url, "http://localhost");
-        const partes = url.pathname.split("/");
-
-        const userId = Number(partes[3]);
-        const roleId = Number(partes[4]);
-
-        if (!Number.isInteger(userId) || userId <= 0) {
-            responder(400, {
+        if (
+            !/^\d+$/.test(userIdTexto || "") ||
+            !Number.isSafeInteger(userId) ||
+            userId <= 0
+        ) {
+            responder(res, 400, {
                 mensagem: "ID de usuário inválido."
             });
             return;
         }
 
-        if (!Number.isInteger(roleId) || roleId <= 0) {
-            responder(400, {
-                mensagem: "ID de role inválido."
+        if (
+            !/^\d+$/.test(roleIdTexto || "") ||
+            !Number.isSafeInteger(roleId) ||
+            roleId <= 0
+        ) {
+            responder(res, 400, {
+                mensagem: "ID de papel inválido."
             });
             return;
         }
 
-        if (roleId === 1) {
+        if (!(await ehAdmin(atorId))) {
+            responder(res, 403, {
+                mensagem: "Somente um administrador pode remover papéis."
+            });
+            return;
+        }
+
+        const role = await roleRepository.buscarPorId(roleId);
+
+        if (!role) {
+            responder(res, 404, {
+                mensagem: "Papel não encontrado."
+            });
+            return;
+        }
+
+        if (
+            String(role.role || "").trim().toLowerCase() === "admin"
+        ) {
             const verificacao =
-                await roleRepository.verificarUltimoAdminAtivo(userId);
+                await roleRepository.verificarUltimoAdminAtivo(
+                    userId,
+                    roleId
+                );
 
             if (
-                verificacao.usuario_e_admin_ativo &&
-                verificacao.total_admins_ativos <= 1
+                verificacao.usuario_e_admin_ativo === true &&
+                Number(verificacao.total_admins_ativos) <= 1
             ) {
-                responder(409, {
-                    mensagem: "Não é possível remover a role admin do último administrador ativo."
+                responder(res, 409, {
+                    mensagem: "Não é possível remover o papel admin do último administrador ativo."
                 });
                 return;
             }
         }
 
-        const resultado = await roleRepository.remover(userId, roleId);
+        const resultado = await roleRepository.remover(
+            userId,
+            roleId
+        );
 
-        if (resultado.rows.length === 0) {
-            responder(404, {
-                mensagem: "Esta role não está atribuída a este usuário."
+        if (!resultado.rows || resultado.rows.length === 0) {
+            responder(res, 404, {
+                mensagem: "Este papel não está atribuído a este usuário."
             });
             return;
         }
 
-        responder(200, {
-            mensagem: "Role removida com sucesso.",
+        responder(res, 200, {
+            mensagem: "Papel removido com sucesso.",
             usuario_id: userId,
-            role_id: roleId
+            role_id: roleId,
+            role: role.role
         });
     } catch (erro) {
-        console.error("[ERRO AO REMOVER ROLE]", erro.message);
+        console.error("[ERRO AO REMOVER PAPEL]", erro);
 
-        responder(500, {
-            mensagem: "Não foi possível remover a role."
+        responder(res, 500, {
+            mensagem: "Não foi possível remover o papel."
         });
     }
 };

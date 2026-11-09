@@ -1,81 +1,85 @@
 const pedidosRepository = require("../../repositories/pedidosRepository");
+const roleRepository = require("../../repositories/roleRepository");
+
+const responder = (res, status, dados) => {
+    if (res.writableEnded || res.headersSent) return;
+
+    res.writeHead(status, {
+        "Content-Type": "application/json; charset=utf-8"
+    });
+
+    res.end(JSON.stringify(dados));
+};
 
 const pedidosHistoricoStatus = async (req, res) => {
-    try {
-        const url = new URL(req.url, "http://localhost:3000");
-        const partes = url.pathname.split("/");
-        const id = Number(partes[2]);
+    const pathname = new URL(
+        req.url,
+        "http://localhost"
+    ).pathname;
 
-        if (!Number.isInteger(id) || id <= 0) {
-            res.writeHead(400, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
+    const idTexto = pathname.split("/")[2];
+    const id = Number(idTexto);
+    const usuarioId = Number(req.usuario?.id);
 
-            res.end(JSON.stringify({
-                mensagem: "ID do pedido inválido."
-            }));
-
-            return;
-        }
-
-        if (!req.usuario || !req.usuario.id) {
-            res.writeHead(401, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            res.end(JSON.stringify({
-                mensagem: "Usuário não autenticado."
-            }));
-
-            return;
-        }
-
-        const pedidoExiste = await pedidosRepository.consultar(id);
-        const pedido = pedidoExiste.rows[0];
-
-        if (!pedido) {
-            res.writeHead(404, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            res.end(JSON.stringify({
-                mensagem: "Pedido não encontrado."
-            }));
-
-            return;
-        }
-
-        if (Number(pedido.user_id) !== Number(req.usuario.id)) {
-            res.writeHead(403, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            res.end(JSON.stringify({
-                mensagem: "Você não tem permissão para consultar o histórico deste pedido."
-            }));
-
-            return;
-        }
-
-        const resultado = await pedidosRepository.lerHistoricoStatus(id);
-
-        res.writeHead(200, {
-            "Content-Type": "application/json; charset=utf-8"
+    if (
+        !/^\d+$/.test(idTexto || "") ||
+        !Number.isSafeInteger(id) ||
+        id <= 0
+    ) {
+        responder(res, 400, {
+            mensagem: "ID do pedido inválido."
         });
+        return;
+    }
 
-        res.end(JSON.stringify(resultado.rows));
+    if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
+        responder(res, 401, {
+            mensagem: "Usuário não autenticado."
+        });
+        return;
+    }
+
+    try {
+        const pedidoResult = await pedidosRepository.consultar(id);
+        const pedido = pedidoResult.rows?.[0];
+
+        if (!pedido || pedido.oculto === true) {
+            responder(res, 404, {
+                mensagem: "Pedido não encontrado."
+            });
+            return;
+        }
+
+        if (Number(pedido.user_id) !== usuarioId) {
+            const rolesResult = await roleRepository.lerPorUser(usuarioId);
+
+            const papeis = Array.isArray(rolesResult.rows)
+                ? rolesResult.rows.map((role) =>
+                    String(role.role || "").trim().toLowerCase()
+                )
+                : [];
+
+            const permitido = papeis.some((role) =>
+                ["admin", "manager", "sac"].includes(role)
+            );
+
+            if (!permitido) {
+                responder(res, 403, {
+                    mensagem: "Você não tem permissão para consultar o histórico deste pedido."
+                });
+                return;
+            }
+        }
+
+        const historico = await pedidosRepository.lerHistoricoStatus(id);
+
+        responder(res, 200, historico.rows);
     } catch (erro) {
         console.error("[ERRO AO CONSULTAR HISTÓRICO DO PEDIDO]", erro);
 
-        if (!res.writableEnded) {
-            res.writeHead(500, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            res.end(JSON.stringify({
-                mensagem: "Erro interno ao consultar o histórico do pedido."
-            }));
-        }
+        responder(res, 500, {
+            mensagem: "Erro interno ao consultar o histórico do pedido."
+        });
     }
 };
 
