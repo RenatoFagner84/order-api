@@ -1,62 +1,55 @@
+
+const express = require("express");
 const cart = require("../controllers/cart");
 
-const cartRoutes = async (req, res) => {
-    const url = new URL(req.url, "http://localhost");
-    const caminho = url.pathname;
+const router = express.Router();
 
-    if (req.method === "POST" && caminho === "/cart") {
+router.post("/cart", async (req, res, next) => {
+    try {
         await cart.cartCriar(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    if (req.method === "GET" && caminho === "/cart") {
+router.get("/cart", async (req, res, next) => {
+    try {
         await cart.cartListarTodos(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    const rotaConsultar = caminho.match(/^\/cart\/(\d+)$/);
-
-    if (req.method === "GET" && rotaConsultar) {
-        req.params = { id: rotaConsultar[1] };
+router.get("/cart/:id", async (req, res, next) => {
+    try {
         await cart.cartConsultar(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    const rotaAdicionarProduto = caminho.match(/^\/cart\/(\d+)\/produtos$/);
-
-    if (req.method === "POST" && rotaAdicionarProduto) {
-        req.params = { id: rotaAdicionarProduto[1] };
+router.post("/cart/:id/produtos", async (req, res, next) => {
+    try {
         await cart.cartAdicionarProduto(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    const rotaAtualizarProduto = caminho.match(/^\/cart\/(\d+)\/produtos\/(\d+)$/);
-
-    if (req.method === "PUT" && rotaAtualizarProduto) {
-        req.params = {
-            id: rotaAtualizarProduto[1],
-            produtoId: rotaAtualizarProduto[2]
-        };
+router.put("/cart/:id/produtos/:produtoId", async (req, res, next) => {
+    try {
         await cart.cartAtualizarQuantidade(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    if (req.method === "DELETE" && rotaAtualizarProduto) {
-        req.params = {
-            id: rotaAtualizarProduto[1],
-            produtoId: rotaAtualizarProduto[2]
-        };
+router.delete("/cart/:id/produtos/:produtoId", async (req, res, next) => {
+    try {
         await cart.cartRemoverProduto(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    res.writeHead(404, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify({
-        mensagem: "Rota não encontrada"
-    }));
-};
-
-module.exports = cartRoutes;
+module.exports = router;

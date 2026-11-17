@@ -1,96 +1,59 @@
+
 const bcrypt = require("bcryptjs");
 const pool = require("../../db");
 const userRepository = require("../../repositories/userRepository");
 const { enviarEmailBoasVindas } = require("../../services/emailService");
 
-const responder = (res, status, dados) => {
-    if (res.writableEnded || res.headersSent) return;
-
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify(dados));
-};
-
 const usersInserir = async (req, res) => {
-    let body = "";
-
-    try {
-        for await (const chunk of req) {
-            body += chunk.toString();
-
-            if (body.length > 1024 * 1024) {
-                responder(res, 413, {
-                    mensagem: "Corpo da requisição muito grande."
-                });
-                return;
-            }
-        }
-    } catch (erro) {
-        console.error("[ERRO AO RECEBER CADASTRO DE USUÁRIO]", erro);
-
-        responder(res, 400, {
-            mensagem: "Erro ao receber os dados da requisição."
-        });
-        return;
-    }
-
-    let dados;
-
-    try {
-        dados = JSON.parse(body);
-    } catch {
-        responder(res, 400, {
-            mensagem: "Corpo da requisição JSON inválido."
-        });
-        return;
-    }
-
-    if (
-        !dados ||
-        typeof dados !== "object" ||
-        Array.isArray(dados)
-    ) {
-        responder(res, 400, {
-            mensagem: "O corpo da requisição deve ser um objeto JSON."
-        });
-        return;
-    }
-
-    const { nome, email, telefone, senha } = dados;
-
-    if (
-        typeof nome !== "string" ||
-        !nome.trim() ||
-        typeof email !== "string" ||
-        !email.trim() ||
-        typeof senha !== "string" ||
-        senha.length < 8
-    ) {
-        responder(res, 400, {
-            mensagem: "Informe nome, e-mail e senha com pelo menos 8 caracteres."
-        });
-        return;
-    }
-
-    if (
-        telefone !== undefined &&
-        telefone !== null &&
-        typeof telefone !== "string"
-    ) {
-        responder(res, 400, {
-            mensagem: "O telefone deve ser uma string."
-        });
-        return;
-    }
-
     let client;
     let transacaoIniciada = false;
 
     try {
+        // O express.json() já interpreta o JSON.
+        // Não ler novamente o fluxo da requisição.
+        const dados = req.body;
+
+        if (
+            !dados ||
+            typeof dados !== "object" ||
+            Array.isArray(dados)
+        ) {
+            return res.status(400).json({
+                mensagem: "O corpo da requisição deve ser um objeto JSON."
+            });
+        }
+
+        const { nome, email, telefone, senha } = dados;
+
+        // Validação dos campos obrigatórios
+        if (
+            typeof nome !== "string" ||
+            !nome.trim() ||
+            typeof email !== "string" ||
+            !email.trim() ||
+            typeof senha !== "string" ||
+            senha.length < 8
+        ) {
+            return res.status(400).json({
+                mensagem: "Informe nome, e-mail e senha com pelo menos 8 caracteres."
+            });
+        }
+
+        if (
+            telefone !== undefined &&
+            telefone !== null &&
+            typeof telefone !== "string"
+        ) {
+            return res.status(400).json({
+                mensagem: "O telefone deve ser uma string."
+            });
+        }
+
         const nomeNormalizado = nome.trim();
-        const emailNormalizado = email.trim();
+        const emailNormalizado = email.trim().toLowerCase();
+        const telefoneNormalizado = telefone ? telefone.trim() : null;
+
+        // Criptografa a senha antes de armazenar
         const senhaHash = await bcrypt.hash(senha, 10);
 
         client = await pool.connect();
@@ -98,42 +61,37 @@ const usersInserir = async (req, res) => {
         await client.query("BEGIN");
         transacaoIniciada = true;
 
-        // Verifica o e-mail utilizando o repository.
-        // O client mantém a consulta dentro da mesma transação.
-        const usuarioExiste = await userRepository.verificarEmailExistente(
-            emailNormalizado,
-            client
-        );
+        // Verifica se o e-mail já está cadastrado
+        const usuarioExiste =
+            await userRepository.verificarEmailExistente(
+                emailNormalizado,
+                client
+            );
 
         if (usuarioExiste.rowCount > 0) {
             await client.query("ROLLBACK");
             transacaoIniciada = false;
 
-            responder(res, 409, {
+            return res.status(409).json({
                 mensagem: "Já existe um usuário com este e-mail."
             });
-            return;
         }
 
-        const resultadoRole = await client.query(
-            `SELECT id, role
-             FROM roles
-             WHERE LOWER(role) = 'client'
-             LIMIT 1`
-        );
+        // Busca a role padrão de cliente
+        const resultadoRole = await userRepository.buscarRoleClient(client);
 
         if (resultadoRole.rowCount === 0) {
             await client.query("ROLLBACK");
             transacaoIniciada = false;
 
-            responder(res, 500, {
+            return res.status(500).json({
                 mensagem: "A role client não está cadastrada no banco."
             });
-            return;
         }
 
         const roleClient = resultadoRole.rows[0];
 
+        // Insere o usuário
         const resultadoUsuario = await client.query(
             `INSERT INTO users
                 (nome, email, telefone, senha_hash, ativo)
@@ -142,22 +100,24 @@ const usersInserir = async (req, res) => {
             [
                 nomeNormalizado,
                 emailNormalizado,
-                telefone || null,
+                telefoneNormalizado,
                 senhaHash
             ]
         );
 
         const usuario = resultadoUsuario.rows[0];
 
-        await client.query(
-            `INSERT INTO users_roles (user_id, role_id)
-             VALUES ($1, $2)`,
-            [usuario.id, roleClient.id]
+        // Associa o usuário à role padrão
+        await userRepository.associarUsuarioRole(
+            usuario.id,
+            roleClient.id,
+            client
         );
 
         await client.query("COMMIT");
         transacaoIniciada = false;
 
+        // O envio do e-mail não desfaz o cadastro caso falhe
         try {
             await enviarEmailBoasVindas(usuario);
         } catch (erroEmail) {
@@ -167,7 +127,7 @@ const usersInserir = async (req, res) => {
             );
         }
 
-        responder(res, 201, {
+        return res.status(201).json({
             mensagem: "Usuário cadastrado com sucesso.",
             usuario,
             roles: [
@@ -193,13 +153,12 @@ const usersInserir = async (req, res) => {
         console.error("[ERRO AO CADASTRAR USUÁRIO]", erro);
 
         if (erro.code === "23505") {
-            responder(res, 409, {
+            return res.status(409).json({
                 mensagem: "Já existe um usuário com estes dados únicos."
             });
-            return;
         }
 
-        responder(res, 500, {
+        return res.status(500).json({
             mensagem: "Não foi possível cadastrar o usuário."
         });
 

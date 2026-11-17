@@ -1,57 +1,27 @@
+
+const express = require("express");
 const produto = require("../controllers/produtos");
 
-const responder = (res, status, dados) => {
-    if (res.writableEnded || res.headersSent) return;
+const router = express.Router();
 
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify(dados));
+const executar = (controller) => async (req, res, next) => {
+    try {
+        await controller(req, res);
+    } catch (erro) {
+        next(erro);
+    }
 };
 
-const produtosRoutes = async (req, res) => {
-    const url = new URL(req.url, "http://localhost");
-    const partes = url.pathname.split("/");
-    const acao = partes[2];
-    const id = partes[3];
+router.get("/produtos/ler", executar(produto.produtosLer));
 
-    if (req.method === "GET" && acao === "ler" && id) {
-        await produto.produtosLerId(req, res);
-        return;
-    }
+router.get("/produtos/ler/:id", executar(produto.produtosLerId));
 
-    if (req.method === "GET" && acao === "ler") {
-        await produto.produtosLer(req, res);
-        return;
-    }
+router.get("/produtos/buscar", executar(produto.produtosBuscar));
 
-    if (req.method === "GET" && acao === "buscar") {
-        req.query = Object.fromEntries(url.searchParams.entries());
-        await produto.produtosBuscar(req, res);
-        return;
-    }
+router.post("/produtos/inserir", executar(produto.produtosInserir));
 
-    if (req.method === "POST" && acao === "inserir") {
-        await produto.produtosInserir(req, res);
-        return;
-    }
+router.put("/produtos/atualizar/:id", executar(produto.produtosAtualizar));
 
-    if (req.method === "PUT" && acao === "atualizar" && id) {
-        req.id = id;
-        await produto.produtosAtualizar(req, res);
-        return;
-    }
+router.delete("/produtos/deletar/:id", executar(produto.produtosDeletar));
 
-    if (req.method === "DELETE" && acao === "deletar" && id) {
-        req.id = id;
-        await produto.produtosDeletar(req, res);
-        return;
-    }
-
-    responder(res, 404, {
-        mensagem: "Rota de produtos não encontrada"
-    });
-};
-
-module.exports = produtosRoutes;
+module.exports = router;

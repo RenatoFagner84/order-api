@@ -1,53 +1,39 @@
+
+const express = require("express");
 const roles = require("../controllers/roles");
 
-const responder = (res, status, dados) => {
-    if (res.writableEnded || res.headersSent) return;
+const router = express.Router();
 
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify(dados));
-};
-
-const rolesRoutes = async (req, res) => {
-    const pathname = new URL(
-        req.url,
-        "http://localhost"
-    ).pathname;
-
-    if (req.method === "GET" && pathname === "/roles/ler") {
+router.get("/roles/ler", async (req, res, next) => {
+    try {
         await roles.roleLer(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    if (
-        req.method === "GET" &&
-        /^\/roles\/user\/\d+$/.test(pathname)
-    ) {
+router.get("/roles/user/:userId", async (req, res, next) => {
+    try {
         await roles.rolesPorUser(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    if (
-        req.method === "POST" &&
-        /^\/roles\/user\/\d+$/.test(pathname)
-    ) {
+router.post("/roles/user/:userId", async (req, res, next) => {
+    try {
         await roles.roleAtribuir(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    if (
-        req.method === "DELETE" &&
-        /^\/roles\/user\/\d+\/\d+$/.test(pathname)
-    ) {
+router.delete("/roles/user/:userId/:roleId", async (req, res, next) => {
+    try {
         await roles.roleRemover(req, res);
-        return;
+    } catch (erro) {
+        next(erro);
     }
+});
 
-    responder(res, 404, {
-        mensagem: "Rota de papéis não encontrada."
-    });
-};
-
-module.exports = rolesRoutes;
+module.exports = router;

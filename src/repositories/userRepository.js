@@ -1,3 +1,4 @@
+
 const pool = require("../db");
 
 const ler = async (id) => {
@@ -74,7 +75,6 @@ const verificarEmailExistente = async (email, client = pool) => {
     );
 };
 
-// Busca a role padrão do cadastro de usuários.
 const buscarRoleClient = async (client = pool) => {
     return await client.query(
         `SELECT id, role
@@ -84,7 +84,6 @@ const buscarRoleClient = async (client = pool) => {
     );
 };
 
-// Associa um usuário a uma role.
 const associarUsuarioRole = async (
     userId,
     roleId,
@@ -129,21 +128,102 @@ const atualizar = async (
     nome,
     email,
     telefone,
-    statusId
+    statusId,
+    enderecos
 ) => {
-    return await pool.query(
-        `UPDATE users
-         SET
-            nome = $1,
-            email = $2,
-            telefone = $3,
-            status_id = $4
-         WHERE id = $5
-           AND ativo = TRUE
-         RETURNING
-            id, nome, email, telefone, status_id, ativo`,
-        [nome, email, telefone || null, statusId, id]
-    );
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const usuario = await client.query(
+            `UPDATE users
+             SET
+                nome = COALESCE($1, nome),
+                email = COALESCE($2, email),
+                telefone = COALESCE($3, telefone),
+                status_id = COALESCE($4, status_id)
+             WHERE id = $5
+               AND ativo = TRUE
+             RETURNING id, nome, email, telefone, status_id, ativo`,
+            [nome, email, telefone, statusId, id]
+        );
+
+        if (usuario.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return { rows: [], rowCount: 0 };
+        }
+
+        if (enderecos !== undefined) {
+            for (const endereco of enderecos) {
+                await client.query(
+                    `INSERT INTO enderecos (
+                        user_id,
+                        cep,
+                        logradouro,
+                        numero,
+                        complemento,
+                        bairro,
+                        cidade,
+                        estado
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [
+                        id,
+                        endereco.cep,
+                        endereco.logradouro,
+                        endereco.numero,
+                        endereco.complemento ?? null,
+                        endereco.bairro,
+                        endereco.cidade,
+                        endereco.estado
+                    ]
+                );
+            }
+        }
+
+        const resultado = await client.query(
+            `SELECT
+                u.id,
+                u.nome,
+                u.email,
+                u.telefone,
+                u.status_id,
+                u.ativo,
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', e.id,
+                                'cep', e.cep,
+                                'logradouro', e.logradouro,
+                                'numero', e.numero,
+                                'complemento', e.complemento,
+                                'bairro', e.bairro,
+                                'cidade', e.cidade,
+                                'estado', e.estado
+                            )
+                            ORDER BY e.id
+                        )
+                        FROM enderecos e
+                        WHERE e.user_id = u.id
+                    ),
+                    '[]'::json
+                ) AS enderecos
+             FROM users u
+             WHERE u.id = $1`,
+            [id]
+        );
+
+        await client.query("COMMIT");
+
+        return resultado;
+    } catch (erro) {
+        await client.query("ROLLBACK");
+        throw erro;
+    } finally {
+        client.release();
+    }
 };
 
 const deletar = async (id) => {
@@ -189,10 +269,6 @@ const lerHistoricoStatus = async (id) => {
         [id]
     );
 };
-
-// ==========================================
-// RECUPERAÇÃO DE SENHA
-// ==========================================
 
 const buscarUsuarioParaRecuperacao = async (email) => {
     return await pool.query(
@@ -278,7 +354,6 @@ const invalidarRecuperacao = async (id) => {
     );
 };
 
-// Atualiza a senha e consome o token em uma única transação.
 const redefinirSenhaComToken = async (
     userId,
     resetId,
@@ -368,7 +443,6 @@ module.exports = {
     atualizar,
     deletar,
     lerHistoricoStatus,
-
     buscarUsuarioParaRecuperacao,
     invalidarRecuperacoesAnteriores,
     criarRecuperacaoSenha,

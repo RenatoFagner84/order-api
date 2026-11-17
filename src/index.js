@@ -1,23 +1,67 @@
-
 require("dotenv").config();
 
-const http = require("http");
+const express = require("express");
+
 const routes = require("./routes");
 const logRepository = require("./repositories/logRepository");
+
 const autenticar = require("./middlewares/autenticar");
 const autorizar = require("./middlewares/autorizar");
 
-const server = http.createServer(async (req, res) => {
+const {
+    apiLimiter,
+    loginLimiter,
+    recuperarSenhaLimiter,
+    verificarPinLimiter,
+    redefinirSenhaLimiter
+} = require("./middlewares/rateLimiter");
+
+const app = express();
+
+const PORT = process.env.PORT || 3000;
+
+app.disable("x-powered-by");
+
+// ========================================
+// INTERPRETAÇÃO DO CORPO DA REQUISIÇÃO
+// ========================================
+
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+// ========================================
+// RATE LIMITING
+// ========================================
+
+// Proteção geral: todas as rotas
+app.use(apiLimiter);
+
+// Proteção específica de autenticação
+app.use("/users/login", loginLimiter);
+
+// Proteção específica de recuperação de senha
+app.use("/users/recuperar-senha", recuperarSenhaLimiter);
+
+// Proteção específica de verificação do PIN
+app.use("/users/verificar-pin", verificarPinLimiter);
+
+// Proteção específica de redefinição de senha
+app.use("/users/redefinir-senha", redefinirSenhaLimiter);
+
+// ========================================
+// SISTEMA DE LOGS
+// ========================================
+
+app.use((req, res, next) => {
     const inicio = Date.now();
-    const url = new URL(req.url, "http://localhost");
-    const rota = url.pathname;
+    const rota = req.path;
     const metodo = req.method;
 
     const ignorarLog =
         rota === "/logs" || rota.startsWith("/logs/");
 
     const ip = req.socket.remoteAddress || null;
-    const user_agent = req.headers["user-agent"] || null;
+    const userAgent = req.headers["user-agent"] || null;
 
     res.on("finish", () => {
         if (ignorarLog) return;
@@ -32,100 +76,111 @@ const server = http.createServer(async (req, res) => {
             res.statusCode,
             mensagem,
             ip,
-            user_agent,
+            userAgent,
             req.usuario?.id ?? null
         ).catch((erro) => {
             console.error("[ERRO AO REGISTRAR LOG]", erro.message);
         });
     });
 
-    try {
-        const consultaPublicaProduto =
-            metodo === "GET" &&
-            (
-                rota === "/produtos/ler" ||
-                /^\/produtos\/ler\/\d+$/.test(rota) ||
-                rota === "/produtos/buscar"
-            );
+    next();
+});
 
-        const rotaPublicaUsuario =
-            metodo === "POST" &&
-            (
-                rota === "/users/login" ||
-                rota === "/users/inserir" ||
-                rota === "/users/recuperar-senha" ||
-                rota === "/users/verificar-pin" ||
-                rota === "/users/redefinir-senha"
-            );
+// ========================================
+// AUTENTICAÇÃO E AUTORIZAÇÃO
+// ========================================
 
-        if (rotaPublicaUsuario || consultaPublicaProduto) {
-            if (consultaPublicaProduto) {
-                await routes.produtosRoutes(req, res);
-            } else {
-                await routes.usersRoutes(req, res);
-            }
+app.use((req, res, next) => {
+    const rota = req.path;
+    const metodo = req.method;
 
-            return;
-        }
+    const rotaPublicaUsuario =
+        metodo === "POST" &&
+        [
+            "/users/login",
+            "/users/inserir",
+            "/users/recuperar-senha",
+            "/users/verificar-pin",
+            "/users/redefinir-senha"
+        ].includes(rota);
 
-        autenticar(req, res, () => {
-            autorizar(req, res, async () => {
-                try {
-                    if (rota.startsWith("/produtos")) {
-                        await routes.produtosRoutes(req, res);
-                    } else if (rota.startsWith("/cart")) {
-                        await routes.cartRoutes(req, res);
-                    } else if (rota.startsWith("/pedido")) {
-                        await routes.pedidosRoutes(req, res);
-                    } else if (rota.startsWith("/enderecos")) {
-                        await routes.enderecosRoutes(req, res);
-                    } else if (rota.startsWith("/caixa")) {
-                        await routes.caixaRoutes(req, res);
-                    } else if (rota.startsWith("/roles")) {
-                        await routes.rolesRoutes(req, res);
-                    } else if (rota.startsWith("/logs")) {
-                        await routes.logsRoutes(req, res);
-                    } else if (rota.startsWith("/users")) {
-                        await routes.usersRoutes(req, res);
-                    } else if (!res.writableEnded) {
-                        res.writeHead(404, {
-                            "Content-Type": "application/json; charset=utf-8"
-                        });
+    const consultaPublicaProduto =
+        metodo === "GET" &&
+        (
+            rota === "/produtos/ler" ||
+            /^\/produtos\/ler\/\d+$/.test(rota) ||
+            rota === "/produtos/buscar"
+        );
 
-                        res.end(JSON.stringify({
-                            mensagem: "Rota não encontrada"
-                        }));
-                    }
-                } catch (erro) {
-                    console.error("[ERRO NA ROTA]", erro);
+    if (rotaPublicaUsuario || consultaPublicaProduto) {
+        return next();
+    }
 
-                    if (!res.writableEnded) {
-                        res.writeHead(500, {
-                            "Content-Type": "application/json; charset=utf-8"
-                        });
+    autenticar(req, res, () => {
+        autorizar(req, res, next);
+    });
+});
 
-                        res.end(JSON.stringify({
-                            mensagem: "Erro interno do servidor."
-                        }));
-                    }
-                }
-            });
+// ========================================
+// ROTAS
+// ========================================
+
+app.use(routes.usersRoutes);
+app.use(routes.produtosRoutes);
+app.use(routes.pedidosRoutes);
+app.use(routes.cartRoutes);
+app.use(routes.caixaRoutes);
+app.use(routes.enderecosRoutes);
+app.use(routes.rolesRoutes);
+app.use(routes.logsRoutes);
+
+// ========================================
+// ROTA NÃO ENCONTRADA
+// ========================================
+
+app.use((req, res) => {
+    if (!res.headersSent) {
+        res.status(404).json({
+            mensagem: "Rota não encontrada."
         });
-    } catch (erro) {
-        console.error("[ERRO NO SERVIDOR]", erro);
-
-        if (!res.writableEnded) {
-            res.writeHead(500, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            res.end(JSON.stringify({
-                mensagem: "Erro interno do servidor."
-            }));
-        }
     }
 });
 
-server.listen(3000, () => {
-    console.log("Servidor rodando em http://localhost:3000");
+// ========================================
+// TRATAMENTO DE ERROS
+// ========================================
+
+app.use((erro, req, res, next) => {
+    console.error("[ERRO NO SERVIDOR]", erro);
+
+    if (res.headersSent) {
+        return next(erro);
+    }
+
+    // Erro de interpretação do JSON enviado pelo cliente
+    if (
+        erro instanceof SyntaxError &&
+        erro.status === 400 &&
+        Object.prototype.hasOwnProperty.call(erro, "body")
+    ) {
+        return res.status(400).json({
+            mensagem: "Corpo da requisição JSON inválido."
+        });
+    }
+
+    res.status(500).json({
+        mensagem: "Erro interno do servidor."
+    });
 });
+
+// ========================================
+// INICIALIZAÇÃO
+// ========================================
+
+app.listen(PORT, () => {
+    console.log(
+        `Servidor Express rodando em http://localhost:${PORT}`
+    );
+});
+
+module.exports = app;

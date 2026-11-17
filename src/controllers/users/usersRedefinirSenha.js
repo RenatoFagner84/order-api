@@ -5,47 +5,20 @@ const jwt = require("jsonwebtoken");
 const userRepository = require("../../repositories/userRepository");
 
 const responder = (res, status, mensagem) => {
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify({ mensagem }));
-};
-
-const lerCorpoRequisicao = async (req) => {
-    let corpo = "";
-
-    for await (const parte of req) {
-        corpo += parte;
-    }
-
-    try {
-        return JSON.parse(corpo);
-    } catch {
-        return null;
-    }
+    return res.status(status).json({ mensagem });
 };
 
 const usersRedefinirSenha = async (req, res) => {
     try {
-        const dados = await lerCorpoRequisicao(req);
+        const token = req.body?.token;
+        const senhaRecebida = req.body?.senha;
 
-        if (!dados || !dados.token || !dados.senha) {
-            return responder(
-                res,
-                400,
-                "Informe o token e a nova senha."
-            );
+        if (typeof token !== "string" || typeof senhaRecebida !== "string" || !token || !senhaRecebida) {
+            return responder(res, 400, "Informe o token e a nova senha.");
         }
 
-        const senha = String(dados.senha);
-
-        if (senha.length < 8) {
-            return responder(
-                res,
-                400,
-                "A senha deve ter pelo menos 8 caracteres."
-            );
+        if (senhaRecebida.length < 8) {
+            return responder(res, 400, "A senha deve ter pelo menos 8 caracteres.");
         }
 
         if (!process.env.JWT_SECRET) {
@@ -53,17 +26,13 @@ const usersRedefinirSenha = async (req, res) => {
         }
 
         let payload;
-
         try {
-            payload = jwt.verify(
-                dados.token,
-                process.env.JWT_SECRET
-            );
+            payload = jwt.verify(token, process.env.JWT_SECRET);
         } catch {
             return responder(
                 res,
-                401,
-                "Token inválido ou expirado. Solicite uma nova recuperação."
+                400,
+                "Não foi possível concluir a redefinição. Solicite um novo código e tente novamente."
             );
         }
 
@@ -74,43 +43,33 @@ const usersRedefinirSenha = async (req, res) => {
         ) {
             return responder(
                 res,
-                401,
-                "Token de recuperação inválido."
+                400,
+                "Não foi possível concluir a redefinição. Solicite um novo código e tente novamente."
             );
         }
 
         const userId = Number(payload.sub);
-
         if (!Number.isSafeInteger(userId) || userId <= 0) {
             return responder(
                 res,
-                401,
-                "Token de recuperação inválido."
+                400,
+                "Não foi possível concluir a redefinição. Solicite um novo código e tente novamente."
             );
         }
 
-        const senhaHash = await bcrypt.hash(senha, 10);
-
-        const resultado =
-            await userRepository.redefinirSenhaComToken(
-                userId,
-                payload.resetId,
-                senhaHash
-            );
+        const senhaHash = await bcrypt.hash(senhaRecebida, 10);
+        const resultado = await userRepository.redefinirSenhaComToken(
+            userId,
+            payload.resetId,
+            senhaHash
+        );
 
         if (!resultado.sucesso) {
-            const mensagens = {
-                invalido: "Solicitação de recuperação não encontrada.",
-                utilizado: "Este código de recuperação já foi utilizado.",
-                expirado: "O prazo de recuperação expirou. Solicite um novo código.",
-                usuario: "Usuário não encontrado ou desativado."
-            };
-
+            // Não diferencia token inexistente, expirado, utilizado ou usuário inativo.
             return responder(
                 res,
                 400,
-                mensagens[resultado.motivo] ||
-                    "Não foi possível redefinir a senha."
+                "Não foi possível concluir a redefinição. Solicite um novo código e tente novamente."
             );
         }
 
@@ -119,17 +78,12 @@ const usersRedefinirSenha = async (req, res) => {
             200,
             "Senha redefinida com sucesso. Você já pode fazer login."
         );
-
     } catch (erro) {
-        console.error(
-            "[ERRO AO REDEFINIR SENHA]",
-            erro
-        );
-
+        console.error("[ERRO AO REDEFINIR SENHA]", erro);
         return responder(
             res,
             500,
-            "Não foi possível redefinir a senha."
+            "Não foi possível redefinir a senha. Tente novamente mais tarde."
         );
     }
 };

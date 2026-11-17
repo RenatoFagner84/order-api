@@ -1,77 +1,23 @@
 
+const express = require("express");
 const user = require("../controllers/users");
 
-const responder = (res, status, mensagem) => {
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
+const router = express.Router();
 
-    res.end(JSON.stringify({ mensagem }));
-};
+// Autenticação e cadastro
+router.post("/users/login", user.usersLogin);
+router.post("/users/inserir", user.usersInserir);
+router.post("/users/recuperar-senha", user.usersRecuperarSenha);
+router.post("/users/verificar-pin", user.usersVerificarPin);
+router.post("/users/redefinir-senha", user.usersRedefinirSenha);
 
-const usersRoutes = async (req, res) => {
-    const url = new URL(req.url, "http://localhost");
-    const caminho = url.pathname;
+// Consultas
+router.get("/users/buscar", user.usersBuscar);
+router.get("/users/ler", user.usersLer);
+router.get("/users/ler/:id", user.usersLerId);
 
-    if (req.method === "POST" && caminho === "/users/login") {
-        await user.usersLogin(req, res);
-        return;
-    }
+// Atualização e exclusão
+router.put("/users/atualizar/:id", user.usersAtualizar);
+router.delete("/users/deletar/:id", user.usersDeletar);
 
-    if (req.method === "POST" && caminho === "/users/inserir") {
-        await user.usersInserir(req, res);
-        return;
-    }
-
-    if (req.method === "POST" && caminho === "/users/recuperar-senha") {
-        await user.usersRecuperarSenha(req, res);
-        return;
-    }
-
-    if (req.method === "POST" && caminho === "/users/verificar-pin") {
-        await user.usersVerificarPin(req, res);
-        return;
-    }
-
-    if (req.method === "POST" && caminho === "/users/redefinir-senha") {
-        await user.usersRedefinirSenha(req, res);
-        return;
-    }
-
-    if (req.method === "GET" && caminho === "/users/buscar") {
-        await user.usersBuscar(req, res);
-        return;
-    }
-
-    if (req.method === "GET" && caminho === "/users") {
-        await user.usersLer(req, res);
-        return;
-    }
-
-    if (
-        req.method === "GET" &&
-        /^\/users\/\d+\/historico-status$/.test(caminho)
-    ) {
-        await user.usersHistoricoStatus(req, res);
-        return;
-    }
-
-    if (req.method === "GET" && /^\/users\/\d+$/.test(caminho)) {
-        await user.usersLerId(req, res);
-        return;
-    }
-
-    if (req.method === "PUT" && /^\/users\/\d+$/.test(caminho)) {
-        await user.usersAtualizar(req, res);
-        return;
-    }
-
-    if (req.method === "DELETE" && /^\/users\/\d+$/.test(caminho)) {
-        await user.usersDeletar(req, res);
-        return;
-    }
-
-    responder(res, 404, "Rota de usuários não encontrada.");
-};
-
-module.exports = usersRoutes;
+module.exports = router;

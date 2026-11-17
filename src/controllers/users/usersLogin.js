@@ -1,52 +1,19 @@
 
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+
 const userRepository = require("../../repositories/userRepository");
 const roleRepository = require("../../repositories/roleRepository");
 
 const responder = (res, status, dados) => {
     if (res.writableEnded || res.headersSent) return;
 
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify(dados));
+    res.status(status).json(dados);
 };
 
 const usersLogin = async (req, res) => {
-    let body = "";
-
-    try {
-        for await (const chunk of req) {
-            body += chunk.toString();
-
-            if (body.length > 1024 * 1024) {
-                responder(res, 413, {
-                    mensagem: "Corpo da requisição muito grande."
-                });
-                return;
-            }
-        }
-    } catch (erro) {
-        console.error("[ERRO AO RECEBER LOGIN]", erro);
-
-        responder(res, 400, {
-            mensagem: "Erro ao receber os dados da requisição."
-        });
-        return;
-    }
-
-    let dados;
-
-    try {
-        dados = JSON.parse(body);
-    } catch {
-        responder(res, 400, {
-            mensagem: "Corpo da requisição JSON inválido."
-        });
-        return;
-    }
+    // O express.json() já interpreta o corpo da requisição.
+    const dados = req.body;
 
     if (
         !dados ||
@@ -121,7 +88,9 @@ const usersLogin = async (req, res) => {
         const segredo = process.env.JWT_SECRET;
 
         if (!segredo) {
-            console.error("[ERRO DE CONFIGURAÇÃO] JWT_SECRET não definido.");
+            console.error(
+                "[ERRO DE CONFIGURAÇÃO] JWT_SECRET não definido."
+            );
 
             responder(res, 500, {
                 mensagem: "Erro interno ao realizar login."
@@ -154,6 +123,7 @@ const usersLogin = async (req, res) => {
             },
             roles
         });
+
     } catch (erro) {
         console.error("[ERRO AO REALIZAR LOGIN]", erro);
 

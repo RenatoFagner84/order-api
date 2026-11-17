@@ -1,91 +1,60 @@
+
+const express = require("express");
 const pedidos = require("../controllers/pedidos");
 
-const responder = (res, status, dados) => {
-    if (res.writableEnded || res.headersSent) return;
+const router = express.Router();
 
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify(dados));
-};
-
-const pedidosRoutes = async (req, res) => {
-    const url = new URL(req.url, "http://localhost:3000");
-    const caminho = url.pathname;
-
+const executar = (controller) => async (req, res, next) => {
     try {
-        const rotaProdutos = caminho.match(
-            /^\/pedido\/(\d+)\/produtos$/
-        );
-
-        if (rotaProdutos) {
-            if (req.method === "GET") {
-                await pedidos.pedidosConsultar(req, res);
-                return;
-            }
-
-            if (req.method === "POST") {
-                await pedidos.pedidosCriar(req, res);
-                return;
-            }
-
-             if (req.method === "PUT") {
-                await pedidos.pedidosAtualizar(req, res);
-                return;
-            }
-
-            if (req.method === "DELETE") {
-                await pedidos.pedidosCancelar(req, res);
-                return;
-            }
-        }
-
-        if (
-            req.method === "POST" &&
-            /^\/pedido\/\d+\/finalizar$/.test(caminho)
-        ) {
-            await pedidos.pedidosFinalizar(req, res);
-            return;
-        }
-
-        const historico = caminho.match(
-            /^\/pedido\/(\d+)\/historico-status$/
-        );
-
-        if (req.method === "GET" && historico) {
-            await pedidos.pedidosHistoricoStatus(req, res);
-            return;
-        }
-
-        const cancelar = caminho.match(
-            /^\/pedido\/(\d+)\/cancelar$/
-        );
-
-        if (req.method === "PATCH" && cancelar) {
-            await pedidos.pedidosCancelar(req, res);
-            return;
-        }
-
-        const fechar = caminho.match(
-            /^\/pedido\/(\d+)\/fechar$/
-        );
-
-        if (req.method === "PATCH" && fechar) {
-            await pedidos.pedidosOcultar(req, res);
-            return;
-        }
-
-        responder(res, 404, {
-            mensagem: "Rota de pedido não encontrada."
-        });
+        await controller(req, res);
     } catch (erro) {
-        console.error("[ERRO NAS ROTAS DE PEDIDOS]", erro);
-
-        responder(res, 500, {
-            mensagem: "Erro interno ao processar a requisição."
-        });
+        next(erro);
     }
 };
 
-module.exports = pedidosRoutes;
+router.get(
+    "/pedido/produtos",
+    executar(pedidos.pedidosConsultar)
+);
+
+router.get(
+    "/pedido/:id/produtos",
+    executar(pedidos.pedidosConsultar)
+);
+
+router.post(
+    "/pedido/:id/produtos",
+    executar(pedidos.pedidosCriar)
+);
+
+router.put(
+    "/pedido/:id/produtos/:produtoId",
+    executar(pedidos.pedidosAtualizar)
+);
+
+router.delete(
+    "/pedido/:id/produtos",
+    executar(pedidos.pedidosCancelar)
+);
+
+router.post(
+    "/pedido/:id/finalizar",
+    executar(pedidos.pedidosFinalizar)
+);
+
+router.get(
+    "/pedido/:id/historico-status",
+    executar(pedidos.pedidosHistoricoStatus)
+);
+
+router.patch(
+    "/pedido/:id/cancelar",
+    executar(pedidos.pedidosCancelar)
+);
+
+router.patch(
+    "/pedido/:id/fechar",
+    executar(pedidos.pedidosOcultar)
+);
+
+module.exports = router;

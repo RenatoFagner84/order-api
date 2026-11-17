@@ -1,71 +1,35 @@
+
+const express = require("express");
 const caixa = require("../controllers/caixa");
 
-const responder = (res, status, dados) => {
-    if (res.writableEnded || res.headersSent) return;
+const router = express.Router();
 
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
+router.get("/caixa/listar", (req, res) => {
+    return caixa.caixaListar(req, res);
+});
 
-    res.end(JSON.stringify(dados));
-};
+router.get("/caixa/ler/:id", (req, res) => {
+    return caixa.caixaLer(req, res);
+});
 
-const caixaRoutes = async (req, res) => {
-    const url = new URL(req.url, "http://localhost");
-    const partes = url.pathname.split("/");
-    const acao = partes[2];
-    const idTexto = partes[3] || "";
-    const idValido =
-        /^\d+$/.test(idTexto) &&
-        Number.isSafeInteger(Number(idTexto)) &&
-        Number(idTexto) > 0;
+router.get("/caixa/user/:id", (req, res) => {
+    return caixa.caixaListarPorUser(req, res);
+});
 
-    try {
-        if (req.method === "GET" && acao === "listar" && partes.length === 3) {
-            await caixa.caixaListar(req, res);
-            return;
-        }
+router.get("/caixa/pedido/:id", (req, res) => {
+    return caixa.caixaListarPorPedido(req, res);
+});
 
-        if (req.method === "GET" && acao === "ler" && idValido && partes.length === 4) {
-            await caixa.caixaLer(req, res);
-            return;
-        }
+router.post("/caixa/inserir", (req, res) => {
+    return caixa.caixaInserir(req, res);
+});
 
-        if (req.method === "GET" && acao === "user" && idValido && partes.length === 4) {
-            await caixa.caixaListarPorUser(req, res);
-            return;
-        }
+router.put("/caixa/atualizar/:id", (req, res) => {
+    return caixa.caixaAtualizar(req, res);
+});
 
-        if (req.method === "GET" && acao === "pedido" && idValido && partes.length === 4) {
-            await caixa.caixaListarPorPedido(req, res);
-            return;
-        }
+router.delete("/caixa/deletar/:id", (req, res) => {
+    return caixa.caixaDeletar(req, res);
+});
 
-        if (req.method === "POST" && acao === "inserir" && partes.length === 3) {
-            await caixa.caixaInserir(req, res);
-            return;
-        }
-
-        if (req.method === "PUT" && acao === "atualizar" && idValido && partes.length === 4) {
-            await caixa.caixaAtualizar(req, res);
-            return;
-        }
-
-        if (req.method === "DELETE" && acao === "deletar" && idValido && partes.length === 4) {
-            await caixa.caixaDeletar(req, res);
-            return;
-        }
-
-        responder(res, 404, {
-            mensagem: "Rota do caixa não encontrada."
-        });
-    } catch (erro) {
-        console.error("[ERRO NAS ROTAS DO CAIXA]", erro);
-
-        responder(res, 500, {
-            mensagem: "Erro interno ao processar a rota do caixa."
-        });
-    }
-};
-
-module.exports = caixaRoutes;
+module.exports = router;

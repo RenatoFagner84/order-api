@@ -2,120 +2,106 @@ const bcrypt = require("bcryptjs");
 const { randomInt } = require("crypto");
 
 const userRepository = require("../../repositories/userRepository");
-
 const {
     enviarEmailRecuperacaoSenha
 } = require("../../services/emailService");
 
-const responder = (res, status, mensagem) => {
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8"
-    });
-
-    res.end(JSON.stringify({
-        mensagem
-    }));
-};
-
-const lerCorpoRequisicao = async (req) => {
-    let corpo = "";
-
-    for await (const parte of req) {
-        corpo += parte;
-    }
-
-    try {
-        return JSON.parse(corpo);
-    } catch {
-        return null;
-    }
-};
+const MENSAGEM_PADRAO =
+    "Você receberá um código de recuperação.";
 
 const usersRecuperarSenha = async (req, res) => {
     try {
-        const dados = await lerCorpoRequisicao(req);
-
-        if (!dados || !dados.email) {
-            return responder(
-                res,
-                400,
-                "Informe um endereço de e-mail válido."
-            );
-        }
-
-        const email = String(dados.email).trim().toLowerCase();
+        // O express.json() já interpreta o corpo da requisição.
+        const dados = req.body;
 
         if (
-            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+            !dados ||
+            typeof dados !== "object" ||
+            Array.isArray(dados) ||
+            typeof dados.email !== "string"
         ) {
-            return responder(
-                res,
-                400,
-                "Informe um endereço de e-mail válido."
-            );
+            return res.status(400).json({
+                mensagem: "Verique os dados e tente novamente."
+            });
+        }
+
+        const email = dados.email.trim().toLowerCase();
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({
+                mensagem: "Verique os dados e tente novamente."
+            });
         }
 
         const resultadoUsuario =
             await userRepository.buscarUsuarioParaRecuperacao(email);
 
-        // Não revela se o e-mail está cadastrado.
-        if (resultadoUsuario.rowCount === 0) {
-            return responder(
-                res,
-                200,
-                "Se o e-mail estiver cadastrado, você receberá um código de recuperação."
-            );
+        if (!resultadoUsuario || resultadoUsuario.rowCount === 0) {
+            return res.status(200).json({
+                mensagem: MENSAGEM_PADRAO
+            });
         }
 
         const usuario = resultadoUsuario.rows[0];
 
-        // Gera um PIN aleatório de 6 dígitos.
         const pin = String(randomInt(100000, 1000000));
-
-        // Criptografa o PIN antes de salvar no banco.
         const pinHash = await bcrypt.hash(pin, 10);
 
-        // O PIN terá validade de 10 minutos.
-        const expiresAt = new Date(
-            Date.now() + 10 * 60 * 1000
-        );
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-        // Invalida solicitações anteriores.
         await userRepository.invalidarRecuperacoesAnteriores(
             usuario.id
         );
 
-        // Salva o novo PIN no banco de dados.
         await userRepository.criarRecuperacaoSenha(
             usuario.id,
             pinHash,
             expiresAt
         );
 
-        // Envia o PIN para o e-mail do usuário.
-        await enviarEmailRecuperacaoSenha({
-            nome: usuario.nome,
-            email: usuario.email,
-            pin
+        try {
+            const resultadoEmail = await enviarEmailRecuperacaoSenha({
+                nome: usuario.nome,
+                email: usuario.email,
+                pin
+            });
+
+            console.log("[RECUPERAÇÃO] Resultado do envio:", {
+                messageId: resultadoEmail.messageId,
+                accepted: resultadoEmail.accepted,
+                rejected: resultadoEmail.rejected,
+                response: resultadoEmail.response
+            });
+
+            if (
+                !resultadoEmail.accepted ||
+                !resultadoEmail.accepted.length
+            ) {
+                console.error(
+                    "[RECUPERAÇÃO] O servidor SMTP não aceitou o destinatário."
+                );
+            }
+        } catch (erroEmail) {
+            console.error("[FALHA NO ENVIO DO PIN]", {
+                mensagem: erroEmail.message,
+                codigo: erroEmail.code,
+                resposta: erroEmail.response,
+                codigoResposta: erroEmail.responseCode,
+                comando: erroEmail.command
+            });
+        }
+
+        // Resposta genérica para não revelar a existência da conta.
+        return res.status(200).json({
+            mensagem: MENSAGEM_PADRAO
         });
 
-        return responder(
-            res,
-            200,
-            "Se o e-mail estiver cadastrado, você receberá um código de recuperação."
-        );
-
     } catch (erro) {
-        console.error(
-            "[ERRO AO SOLICITAR RECUPERAÇÃO DE SENHA]",
-            erro
-        );
+        console.error("[ERRO NA RECUPERAÇÃO DE SENHA]", erro);
 
-        return responder(
-            res,
-            500,
-            "Não foi possível solicitar a recuperação de senha."
-        );
+        return res.status(500).json({
+            mensagem: "Não foi possível processar a solicitação."
+        });
     }
 };
 
