@@ -94,6 +94,7 @@ app.use((req, res, next) => {
     const rota = req.path;
     const metodo = req.method;
 
+    // Rotas públicas de usuários
     const rotaPublicaUsuario =
         metodo === "POST" &&
         [
@@ -104,6 +105,7 @@ app.use((req, res, next) => {
             "/users/redefinir-senha"
         ].includes(rota);
 
+    // Consultas públicas de produtos
     const consultaPublicaProduto =
         metodo === "GET" &&
         (
@@ -112,10 +114,12 @@ app.use((req, res, next) => {
             rota === "/produtos/buscar"
         );
 
+    // Permite acesso às rotas públicas
     if (rotaPublicaUsuario || consultaPublicaProduto) {
         return next();
     }
 
+    // Demais rotas exigem autenticação e autorização
     autenticar(req, res, () => {
         autorizar(req, res, next);
     });
@@ -174,13 +178,13 @@ app.use((erro, req, res, next) => {
 });
 
 // ========================================
-// INICIALIZAÇÃO
+// INICIALIZAÇÃO DO SERVIDOR
 // ========================================
 
-app.listen(PORT, () => {
-    console.log(
-        `Servidor Express rodando em http://localhost:${PORT}`
-    );
-});
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Servidor Express rodando na porta ${PORT}`);
+    });
+}
 
 module.exports = app;
