@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 
 const express = require("express");
@@ -19,6 +20,9 @@ const {
 const app = express();
 
 const PORT = process.env.PORT || 3000;
+
+// Configuração necessária para o proxy do Heroku
+app.set("trust proxy", 1);
 
 app.disable("x-powered-by");
 
@@ -60,7 +64,7 @@ app.use((req, res, next) => {
     const ignorarLog =
         rota === "/logs" || rota.startsWith("/logs/");
 
-    const ip = req.socket.remoteAddress || null;
+    const ip = req.ip || req.socket.remoteAddress || null;
     const userAgent = req.headers["user-agent"] || null;
 
     res.on("finish", () => {
