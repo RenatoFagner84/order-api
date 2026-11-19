@@ -21,10 +21,8 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
-// Configuração necessária para o proxy do Heroku
-app.set("trust proxy", 1);
-
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 
 // ========================================
 // INTERPRETAÇÃO DO CORPO DA REQUISIÇÃO
@@ -37,19 +35,11 @@ app.use(express.urlencoded({ extended: true }));
 // RATE LIMITING
 // ========================================
 
-// Proteção geral: todas as rotas
 app.use(apiLimiter);
 
-// Proteção específica de autenticação
 app.use("/users/login", loginLimiter);
-
-// Proteção específica de recuperação de senha
 app.use("/users/recuperar-senha", recuperarSenhaLimiter);
-
-// Proteção específica de verificação do PIN
 app.use("/users/verificar-pin", verificarPinLimiter);
-
-// Proteção específica de redefinição de senha
 app.use("/users/redefinir-senha", redefinirSenhaLimiter);
 
 // ========================================
@@ -64,7 +54,7 @@ app.use((req, res, next) => {
     const ignorarLog =
         rota === "/logs" || rota.startsWith("/logs/");
 
-    const ip = req.ip || req.socket.remoteAddress || null;
+    const ip = req.socket.remoteAddress || null;
     const userAgent = req.headers["user-agent"] || null;
 
     res.on("finish", () => {
@@ -88,6 +78,17 @@ app.use((req, res, next) => {
     });
 
     next();
+});
+
+// ========================================
+// ROTA PÚBLICA DE STATUS DA API
+// ========================================
+
+app.get("/", (req, res) => {
+    res.status(200).json({
+        mensagem: "Order API está funcionando!",
+        status: "online"
+    });
 });
 
 // ========================================
@@ -118,7 +119,6 @@ app.use((req, res, next) => {
             rota === "/produtos/buscar"
         );
 
-    // Permite acesso às rotas públicas
     if (rotaPublicaUsuario || consultaPublicaProduto) {
         return next();
     }
@@ -165,7 +165,6 @@ app.use((erro, req, res, next) => {
         return next(erro);
     }
 
-    // Erro de interpretação do JSON enviado pelo cliente
     if (
         erro instanceof SyntaxError &&
         erro.status === 400 &&
