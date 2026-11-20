@@ -4,10 +4,10 @@ name: Testes e CI
 on:
   push:
     branches:
-      - principal
+      - main
   pull_request:
     branches:
-      - principal
+      - main
 
 permissions:
   contents: read
