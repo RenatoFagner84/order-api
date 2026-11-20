@@ -1,9 +1,10 @@
-const userRepository = require("../../src/repositories/userRepository");
-const usersLer = require("../../src/controllers/users/usersLer");
 
 jest.mock("../../src/repositories/userRepository", () => ({
     lerTudo: jest.fn()
 }));
+
+const userRepository = require("../../src/repositories/userRepository");
+const usersLer = require("../../src/controllers/users/usersLer");
 
 describe("usersLer", () => {
     let req;
@@ -16,7 +17,9 @@ describe("usersLer", () => {
 
         res = {
             writeHead: jest.fn(),
-            end: jest.fn()
+            end: jest.fn(),
+            writableEnded: false,
+            headersSent: false
         };
     });
 
@@ -43,7 +46,7 @@ describe("usersLer", () => {
         expect(userRepository.lerTudo).toHaveBeenCalledTimes(1);
 
         expect(res.writeHead).toHaveBeenCalledWith(200, {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json; charset=utf-8"
         });
 
         expect(res.end).toHaveBeenCalledWith(
@@ -59,7 +62,7 @@ describe("usersLer", () => {
         await usersLer(req, res);
 
         expect(res.writeHead).toHaveBeenCalledWith(200, {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json; charset=utf-8"
         });
 
         expect(res.end).toHaveBeenCalledWith("[]");
@@ -79,5 +82,28 @@ describe("usersLer", () => {
         const resposta = JSON.parse(res.end.mock.calls[0][0]);
 
         expect(resposta).toEqual(usuarios);
+    });
+
+    test("deve retornar 500 quando o repositório apresentar erro", async () => {
+        const erro = new Error("Falha no banco de dados");
+        const consoleSpy = jest
+            .spyOn(console, "error")
+            .mockImplementation(() => {});
+
+        userRepository.lerTudo.mockRejectedValue(erro);
+
+        await usersLer(req, res);
+
+        expect(res.writeHead).toHaveBeenCalledWith(500, {
+            "Content-Type": "application/json; charset=utf-8"
+        });
+
+        expect(res.end).toHaveBeenCalledWith(
+            JSON.stringify({
+                mensagem: "Não foi possível listar os usuários."
+            })
+        );
+
+        consoleSpy.mockRestore();
     });
 });

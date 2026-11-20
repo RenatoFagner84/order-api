@@ -1,5 +1,4 @@
-
-name: Testes e CI
+﻿name: Testes e CI
 
 on:
   push:

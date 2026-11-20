@@ -1,4 +1,3 @@
-const { Readable } = require("stream");
 
 jest.mock("../../src/repositories/userRepository", () => ({
     buscarPorEmailParaLogin: jest.fn()
@@ -18,8 +17,10 @@ jest.mock("jsonwebtoken", () => ({
 
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+
 const userRepository = require("../../src/repositories/userRepository");
 const roleRepository = require("../../src/repositories/roleRepository");
+
 const usersLogin = require("../../src/controllers/users/usersLogin");
 
 describe("usersLogin", () => {
@@ -37,40 +38,40 @@ describe("usersLogin", () => {
         ativo: true
     };
 
-    const criarRequisicao = (body) => {
-        const conteudo = typeof body === "string"
-            ? body
-            : JSON.stringify(body);
+    const criarRequisicao = (body) => ({
+        body
+    });
 
-        const requisicao = Readable.from([conteudo]);
+    const criarResposta = (headersSent = false) => {
+        const respostaMock = {
+            writableEnded: false,
+            headersSent,
+            status: jest.fn((status) => {
+                statusCode = status;
+                return respostaMock;
+            }),
+            json: jest.fn((dados) => {
+                resposta = dados;
+                respostaMock.writableEnded = true;
+                return respostaMock;
+            })
+        };
 
-        requisicao.url = "/users/login";
-
-        return requisicao;
+        return respostaMock;
     };
 
     const executar = async (body) => {
         req = criarRequisicao(body);
+        res = criarResposta();
 
-        res = {
-            writableEnded: false,
-            headersSent: false,
-
-            writeHead: jest.fn((status) => {
-                statusCode = status;
-            }),
-
-            end: jest.fn((conteudo) => {
-                resposta = conteudo;
-                res.writableEnded = true;
-            })
-        };
+        statusCode = null;
+        resposta = undefined;
 
         await usersLogin(req, res);
 
         return {
             status: statusCode,
-            dados: resposta ? JSON.parse(resposta) : undefined
+            dados: resposta
         };
     };
 
@@ -93,9 +94,6 @@ describe("usersLogin", () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
-
-        statusCode = null;
-        resposta = "";
 
         segredoOriginal = process.env.JWT_SECRET;
         process.env.JWT_SECRET = "segredo_de_teste";
@@ -152,8 +150,13 @@ describe("usersLogin", () => {
             { expiresIn: "2h" }
         );
 
-        expect(req.usuario).toEqual({ id: 10 });
-        expect(req.logMensagem).toBe("Login realizado com sucesso.");
+        expect(req.usuario).toEqual({
+            id: 10
+        });
+
+        expect(req.logMensagem).toBe(
+            "Login realizado com sucesso."
+        );
     });
 
     test("deve remover espaços extras do e-mail", async () => {
@@ -170,18 +173,27 @@ describe("usersLogin", () => {
             .toHaveBeenCalledWith("joao@email.com");
     });
 
-    test("deve retornar 400 quando o JSON for inválido", async () => {
-        const resultado = await executar("{json inválido");
+    test.each([
+        ["null", null],
+        ["array", []],
+        ["texto", "texto"],
+        ["número", 123],
+        ["corpo ausente", undefined]
+    ])(
+        "deve retornar 400 quando o corpo da requisição for %s",
+        async (_caso, body) => {
+            const resultado = await executar(body);
 
-        expect(resultado.status).toBe(400);
+            expect(resultado.status).toBe(400);
 
-        expect(resultado.dados.mensagem).toBe(
-            "Corpo da requisição JSON inválido."
-        );
+            expect(resultado.dados).toEqual({
+                mensagem: "O corpo da requisição deve ser um objeto JSON."
+            });
 
-        expect(userRepository.buscarPorEmailParaLogin)
-            .not.toHaveBeenCalled();
-    });
+            expect(userRepository.buscarPorEmailParaLogin)
+                .not.toHaveBeenCalled();
+        }
+    );
 
     test.each([
         ["e-mail ausente", { senha: "123456" }],
@@ -190,32 +202,21 @@ describe("usersLogin", () => {
         ["senha vazia", { email: "joao@email.com", senha: "" }],
         ["e-mail não textual", { email: 123, senha: "123456" }],
         ["senha não textual", { email: "joao@email.com", senha: 123 }]
-    ])("deve retornar 400 quando houver %s", async (_caso, body) => {
-        const resultado = await executar(body);
+    ])(
+        "deve retornar 400 quando houver %s",
+        async (_caso, body) => {
+            const resultado = await executar(body);
 
-        expect(resultado.status).toBe(400);
+            expect(resultado.status).toBe(400);
 
-        expect(resultado.dados.mensagem).toBe(
-            "Informe e-mail e senha."
-        );
+            expect(resultado.dados).toEqual({
+                mensagem: "Informe e-mail e senha."
+            });
 
-        expect(userRepository.buscarPorEmailParaLogin)
-            .not.toHaveBeenCalled();
-    });
-
-    test.each([
-        ["null", "null"],
-        ["array", "[]"],
-        ["texto", '"texto"']
-    ])("deve retornar 400 quando o corpo JSON for %s", async (_caso, body) => {
-        const resultado = await executar(body);
-
-        expect(resultado.status).toBe(400);
-
-        expect(resultado.dados.mensagem).toBe(
-            "O corpo da requisição deve ser um objeto JSON."
-        );
-    });
+            expect(userRepository.buscarPorEmailParaLogin)
+                .not.toHaveBeenCalled();
+        }
+    );
 
     test("deve retornar 401 quando o usuário não existir", async () => {
         userRepository.buscarPorEmailParaLogin.mockResolvedValue({
@@ -245,11 +246,20 @@ describe("usersLogin", () => {
         });
 
         expect(resultado.status).toBe(401);
+
+        expect(resultado.dados.mensagem).toBe(
+            "E-mail ou senha inválidos."
+        );
     });
 
     test("deve retornar 401 quando o usuário estiver inativo", async () => {
         userRepository.buscarPorEmailParaLogin.mockResolvedValue({
-            rows: [{ ...usuarioValido, ativo: false }]
+            rows: [
+                {
+                    ...usuarioValido,
+                    ativo: false
+                }
+            ]
         });
 
         const resultado = await executar({
@@ -258,12 +268,22 @@ describe("usersLogin", () => {
         });
 
         expect(resultado.status).toBe(401);
+
+        expect(resultado.dados.mensagem).toBe(
+            "E-mail ou senha inválidos."
+        );
+
         expect(bcrypt.compare).not.toHaveBeenCalled();
     });
 
     test("deve retornar 401 quando o usuário não possuir hash de senha", async () => {
         userRepository.buscarPorEmailParaLogin.mockResolvedValue({
-            rows: [{ ...usuarioValido, senha_hash: null }]
+            rows: [
+                {
+                    ...usuarioValido,
+                    senha_hash: null
+                }
+            ]
         });
 
         const resultado = await executar({
@@ -272,6 +292,7 @@ describe("usersLogin", () => {
         });
 
         expect(resultado.status).toBe(401);
+
         expect(bcrypt.compare).not.toHaveBeenCalled();
     });
 
@@ -294,11 +315,13 @@ describe("usersLogin", () => {
         );
 
         expect(roleRepository.lerPorUser).not.toHaveBeenCalled();
+
         expect(jwt.sign).not.toHaveBeenCalled();
     });
 
     test("deve retornar 500 quando JWT_SECRET não estiver definido", async () => {
         prepararLoginValido();
+
         delete process.env.JWT_SECRET;
 
         const resultado = await executar({
@@ -313,13 +336,16 @@ describe("usersLogin", () => {
         );
 
         expect(jwt.sign).not.toHaveBeenCalled();
-        expect(console.error).toHaveBeenCalled();
+
+        expect(console.error).toHaveBeenCalledWith(
+            "[ERRO DE CONFIGURAÇÃO] JWT_SECRET não definido."
+        );
     });
 
     test("deve retornar 500 quando a consulta ao usuário falhar", async () => {
-        userRepository.buscarPorEmailParaLogin.mockRejectedValue(
-            new Error("Erro no banco")
-        );
+        const erro = new Error("Erro no banco");
+
+        userRepository.buscarPorEmailParaLogin.mockRejectedValue(erro);
 
         const resultado = await executar({
             email: "joao@email.com",
@@ -332,7 +358,10 @@ describe("usersLogin", () => {
             "Erro interno ao realizar login."
         );
 
-        expect(console.error).toHaveBeenCalled();
+        expect(console.error).toHaveBeenCalledWith(
+            "[ERRO AO REALIZAR LOGIN]",
+            erro
+        );
     });
 
     test("deve retornar 500 quando a consulta de roles falhar", async () => {
@@ -342,9 +371,9 @@ describe("usersLogin", () => {
 
         bcrypt.compare.mockResolvedValue(true);
 
-        roleRepository.lerPorUser.mockRejectedValue(
-            new Error("Erro ao consultar roles")
-        );
+        const erro = new Error("Erro ao consultar roles");
+
+        roleRepository.lerPorUser.mockRejectedValue(erro);
 
         const resultado = await executar({
             email: "joao@email.com",
@@ -356,6 +385,11 @@ describe("usersLogin", () => {
         expect(resultado.dados.mensagem).toBe(
             "Erro interno ao realizar login."
         );
+
+        expect(console.error).toHaveBeenCalledWith(
+            "[ERRO AO REALIZAR LOGIN]",
+            erro
+        );
     });
 
     test("deve retornar 500 quando a comparação de senha falhar", async () => {
@@ -363,9 +397,9 @@ describe("usersLogin", () => {
             rows: [usuarioValido]
         });
 
-        bcrypt.compare.mockRejectedValue(
-            new Error("Erro ao comparar senha")
-        );
+        const erro = new Error("Erro ao comparar senha");
+
+        bcrypt.compare.mockRejectedValue(erro);
 
         const resultado = await executar({
             email: "joao@email.com",
@@ -373,13 +407,24 @@ describe("usersLogin", () => {
         });
 
         expect(resultado.status).toBe(500);
+
+        expect(resultado.dados.mensagem).toBe(
+            "Erro interno ao realizar login."
+        );
+
+        expect(console.error).toHaveBeenCalledWith(
+            "[ERRO AO REALIZAR LOGIN]",
+            erro
+        );
     });
 
     test("deve retornar 500 quando a geração do token falhar", async () => {
         prepararLoginValido();
 
+        const erro = new Error("Erro ao gerar token");
+
         jwt.sign.mockImplementation(() => {
-            throw new Error("Erro ao gerar token");
+            throw erro;
         });
 
         const resultado = await executar({
@@ -388,6 +433,15 @@ describe("usersLogin", () => {
         });
 
         expect(resultado.status).toBe(500);
+
+        expect(resultado.dados.mensagem).toBe(
+            "Erro interno ao realizar login."
+        );
+
+        expect(console.error).toHaveBeenCalledWith(
+            "[ERRO AO REALIZAR LOGIN]",
+            erro
+        );
     });
 
     test("não deve responder novamente se os headers já foram enviados", async () => {
@@ -398,16 +452,12 @@ describe("usersLogin", () => {
             senha: "123456"
         });
 
-        res = {
-            writableEnded: false,
-            headersSent: true,
-            writeHead: jest.fn(),
-            end: jest.fn()
-        };
+        res = criarResposta(true);
 
         await usersLogin(req, res);
 
-        expect(res.writeHead).not.toHaveBeenCalled();
-        expect(res.end).not.toHaveBeenCalled();
+        expect(res.status).not.toHaveBeenCalled();
+
+        expect(res.json).not.toHaveBeenCalled();
     });
 });

@@ -1,3 +1,4 @@
+
 const userRepository = require("../../src/repositories/userRepository");
 const usersAtualizar = require("../../src/controllers/users/usersAtualizar");
 
@@ -9,9 +10,6 @@ jest.mock("../../src/repositories/userRepository", () => ({
 describe("usersAtualizar", () => {
     let req;
     let res;
-    let resposta;
-    let statusCode;
-    let headers;
 
     const dadosValidos = {
         nome: "João Silva",
@@ -20,48 +18,17 @@ describe("usersAtualizar", () => {
         status_id: 1
     };
 
-    // Simula a requisição e envia o corpo para o controller
-    const enviarBody = async (dados, url = "/api/users/10") => {
-        req.url = url;
-
-        const promise = usersAtualizar(req, res);
-
-        if (dados !== undefined && dados !== "") {
-            req.emit("data", Buffer.from(
-                typeof dados === "string"
-                    ? dados
-                    : JSON.stringify(dados)
-            ));
-        }
-
-        req.emit("end");
-
-        return promise;
-    };
-
     beforeEach(() => {
         jest.clearAllMocks();
 
-        resposta = "";
-        statusCode = null;
-        headers = {};
-
-
-        // Usa os métodos de EventEmitter para simular data e end
-        const EventEmitter = require("events");
-        const requisicao = new EventEmitter();
-
-        requisicao.url = "/api/users/10";
-        req = requisicao;
+        req = {
+            params: { id: "10" },
+            body: { ...dadosValidos }
+        };
 
         res = {
-            writeHead: jest.fn((status, cabecalhos) => {
-                statusCode = status;
-                headers = cabecalhos;
-            }),
-            end: jest.fn((conteudo) => {
-                resposta = conteudo;
-            })
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn().mockReturnThis()
         };
     });
 
@@ -79,21 +46,25 @@ describe("usersAtualizar", () => {
             rows: [usuarioAtualizado]
         });
 
-        await enviarBody(dadosValidos);
+        await usersAtualizar(req, res);
 
-        expect(userRepository.ler).toHaveBeenCalledWith("10");
+        expect(userRepository.ler).toHaveBeenCalledWith(10);
 
         expect(userRepository.atualizar).toHaveBeenCalledWith(
-            "10",
+            10,
             "João Silva",
             "joao@email.com",
             "11999999999",
-            1
+            1,
+            undefined
         );
 
-        expect(statusCode).toBe(200);
-        expect(headers["Content-Type"]).toBe("application/json");
-        expect(JSON.parse(resposta)).toEqual(usuarioAtualizado);
+        expect(res.status).toHaveBeenCalledWith(200);
+
+        expect(res.json).toHaveBeenCalledWith({
+            mensagem: "Usuário atualizado com sucesso.",
+            usuario: usuarioAtualizado
+        });
     });
 
     test("deve retornar 404 quando o usuário não existir", async () => {
@@ -101,17 +72,21 @@ describe("usersAtualizar", () => {
             rows: []
         });
 
-        await enviarBody(dadosValidos);
+        await usersAtualizar(req, res);
 
-        expect(statusCode).toBe(404);
-        expect(JSON.parse(resposta)).toEqual({
-            mensagem: "Usuario não encontrado"
+        expect(res.status).toHaveBeenCalledWith(404);
+
+        expect(res.json).toHaveBeenCalledWith({
+            mensagem: "Usuário não encontrado."
         });
 
         expect(userRepository.atualizar).not.toHaveBeenCalled();
     });
 
-    test("deve extrair o ID correto da URL", async () => {
+    test("deve extrair o ID correto dos parâmetros da rota", async () => {
+        req.params.id = "25";
+        req.body = { nome: "Maria" };
+
         userRepository.ler.mockResolvedValue({
             rows: [{ id: 25 }]
         });
@@ -120,22 +95,25 @@ describe("usersAtualizar", () => {
             rows: [{ id: 25, nome: "Maria" }]
         });
 
-        await enviarBody(
-            { nome: "Maria" },
-            "/api/users/25"
-        );
+        await usersAtualizar(req, res);
 
-        expect(userRepository.ler).toHaveBeenCalledWith("25");
+        expect(userRepository.ler).toHaveBeenCalledWith(25);
+
         expect(userRepository.atualizar).toHaveBeenCalledWith(
-            "25",
+            25,
             "Maria",
-            undefined,
-            undefined,
+            null,
+            null,
+            null,
             undefined
         );
+
+        expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    test("deve aceitar corpo vazio", async () => {
+    test("deve aceitar um corpo vazio", async () => {
+        req.body = {};
+
         userRepository.ler.mockResolvedValue({
             rows: [{ id: 10 }]
         });
@@ -144,30 +122,42 @@ describe("usersAtualizar", () => {
             rows: [{ id: 10 }]
         });
 
-        await enviarBody("");
+        await usersAtualizar(req, res);
 
         expect(userRepository.atualizar).toHaveBeenCalledWith(
-            "10",
-            undefined,
-            undefined,
-            undefined,
+            10,
+            null,
+            null,
+            null,
+            null,
             undefined
         );
 
-        expect(statusCode).toBe(200);
+        expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    test("deve rejeitar a Promise se a leitura falhar", async () => {
+    test("deve retornar 500 quando a leitura do usuário falhar", async () => {
         userRepository.ler.mockRejectedValue(
             new Error("Erro ao consultar usuário")
         );
 
-        await expect(
-            enviarBody(dadosValidos)
-        ).rejects.toThrow("Erro ao consultar usuário");
+        const erroOriginal = console.error;
+        console.error = jest.fn();
+
+        try {
+            await usersAtualizar(req, res);
+        } finally {
+            console.error = erroOriginal;
+        }
+
+        expect(res.status).toHaveBeenCalledWith(500);
+
+        expect(res.json).toHaveBeenCalledWith({
+            mensagem: "Erro interno ao atualizar usuário."
+        });
     });
 
-    test("deve rejeitar a Promise se a atualização falhar", async () => {
+    test("deve retornar 500 quando a atualização falhar", async () => {
         userRepository.ler.mockResolvedValue({
             rows: [{ id: 10 }]
         });
@@ -176,9 +166,20 @@ describe("usersAtualizar", () => {
             new Error("Erro ao atualizar usuário")
         );
 
-        await expect(
-            enviarBody(dadosValidos)
-        ).rejects.toThrow("Erro ao atualizar usuário");
+        const erroOriginal = console.error;
+        console.error = jest.fn();
+
+        try {
+            await usersAtualizar(req, res);
+        } finally {
+            console.error = erroOriginal;
+        }
+
+        expect(res.status).toHaveBeenCalledWith(500);
+
+        expect(res.json).toHaveBeenCalledWith({
+            mensagem: "Erro interno ao atualizar usuário."
+        });
     });
 
     test("deve retornar somente o primeiro registro", async () => {
@@ -193,17 +194,22 @@ describe("usersAtualizar", () => {
             ]
         });
 
-        await enviarBody(dadosValidos);
+        await usersAtualizar(req, res);
 
-        expect(JSON.parse(resposta)).toEqual({
-            id: 10,
-            nome: "João"
+        expect(res.json).toHaveBeenCalledWith({
+            mensagem: "Usuário atualizado com sucesso.",
+            usuario: { id: 10, nome: "João" }
         });
     });
 
-    test("deve rejeitar a Promise quando o JSON for inválido", async () => {
-        await expect(
-            enviarBody("{json inválido")
-        ).rejects.toThrow();
+    test("deve retornar 400 quando o ID for inválido", async () => {
+        req.params.id = "abc";
+
+        await usersAtualizar(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+
+        expect(userRepository.ler).not.toHaveBeenCalled();
+        expect(userRepository.atualizar).not.toHaveBeenCalled();
     });
 });
